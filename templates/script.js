@@ -1248,6 +1248,7 @@ function renderNewPurchase(view) {
                 <th>Item</th>
                 <th style="width:70px">Qty</th>
                 <th style="width:90px">Purchase</th>
+                <th style="width:90px">MRP</th>
                 <th style="width:90px">Sale</th>
                 <th style="width:60px">GST%</th>
                 <th style="width:90px">Total</th>
@@ -1312,7 +1313,7 @@ function renderNewPurchase(view) {
           const item = state.items.find((i) => i.code === code);
           if (item) {
             const purchasePrice = Number(item.purchase_price || 0);
-            const salePrice = Number(item.sale_price || 0);
+            const mrp = Number(item.sale_price || 0);
             const qty = 1;
             const gstPercent = 0;
             const taxable = qty * purchasePrice;
@@ -1323,7 +1324,8 @@ function renderNewPurchase(view) {
               name: item.name,
               quantity: qty,
               price: purchasePrice,
-              sale_price: salePrice,
+              mrp: mrp,
+              sale_price: null,
               gst_percent: gstPercent,
               line_total: Math.round((taxable + lineTax) * 100) / 100,
             });
@@ -1339,22 +1341,6 @@ function renderNewPurchase(view) {
   searchInput.addEventListener("focus", showSuggestions);
   searchInput.addEventListener("blur", () => (suggBox.style.display = "none"));
   const draw = () => {
-    const tbody = document.getElementById("purLineBody");
-    tbody.innerHTML = lines
-      .map(
-        (l, i) => `
-        <tr>
-          <td>${esc(l.name)}</td>
-          <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
-          <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
-          <td><input type="number" step="0.01" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
-          <td><input type="number" step="0.01" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
-          <td>₹ ${money(l.line_total)}</td>
-          <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
-        </tr>
-      `
-      )
-      .join("");
     let subtotal = 0;
     let tax = 0;
     for (const l of lines) {
@@ -1370,11 +1356,51 @@ function renderNewPurchase(view) {
     document.getElementById("purTax").textContent = `₹ ${money(tax)}`;
     document.getElementById("purTotal").textContent = `₹ ${money(total)}`;
     document.getElementById("purBalance").textContent = `₹ ${money(total - paid)}`;
+    const tbody = document.getElementById("purLineBody");
+    tbody.innerHTML = lines
+      .map(
+        (l, i) => `
+        <tr>
+          <td>${esc(l.name)}</td>
+          <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
+          <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
+          <td><input type="number" step="0.01" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
+          <td><input type="number" step="0.01" value="${l.sale_price === null ? "" : money(l.sale_price)}" data-i="${i}" data-f="sale_price" placeholder="MRP" /></td>
+          <td><input type="number" step="0.01" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
+          <td>₹ ${money(l.line_total)}</td>
+          <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
+        </tr>
+      `
+      )
+      .join("");
     tbody.querySelectorAll("input[data-i]").forEach((el) =>
       el.addEventListener("change", (e) => {
         const li = Number(e.target.dataset.i);
         const field = e.target.dataset.f;
-        lines[li][field] = Number(e.target.value) || 0;
+        const l = lines[li];
+        const raw = e.target.value.trim();
+        let error = "";
+        if (field === "sale_price") {
+          if (raw === "") {
+            l.sale_price = null;
+          } else {
+            const n = Number(raw);
+            if (isNaN(n) || n <= 0) error = "Sale price must be greater than 0";
+            else if (n <= l.price) error = `Sale price for ${esc(l.name)} must be higher than purchase price`;
+            else l.sale_price = n;
+          }
+        } else if (field === "mrp") {
+          const n = Number(raw) || 0;
+          if (n < 0) error = "MRP cannot be negative";
+          else l.mrp = n;
+        } else if (field === "price" || field === "quantity") {
+          const n = Number(raw) || 0;
+          if (n < 0) error = `${field === "price" ? "Purchase price" : "Quantity"} cannot be negative`;
+          else l[field] = n;
+        } else {
+          l[field] = Number(raw) || 0;
+        }
+        if (error) setStatus(error, "error");
         draw();
       })
     );
