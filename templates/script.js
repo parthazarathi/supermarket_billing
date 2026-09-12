@@ -1314,8 +1314,9 @@ function renderNewPurchase(view) {
             const purchasePrice = Number(item.purchase_price || 0);
             const salePrice = Number(item.sale_price || 0);
             const qty = 1;
+            const gstPercent = 0;
             const taxable = qty * purchasePrice;
-            const lineTax = Math.round(taxable * (item.gst_percent || 0) / 100 * 100) / 100;
+            const lineTax = Math.round(taxable * gstPercent / 100 * 100) / 100;
             lines.push({
               item_id: item.id,
               code: item.code,
@@ -1323,7 +1324,7 @@ function renderNewPurchase(view) {
               quantity: qty,
               price: purchasePrice,
               sale_price: salePrice,
-              gst_percent: item.gst_percent || 0,
+              gst_percent: gstPercent,
               line_total: Math.round((taxable + lineTax) * 100) / 100,
             });
             searchInput.value = "";
