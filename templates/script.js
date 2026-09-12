@@ -1009,7 +1009,8 @@ function itemForm(item = {}) {
     try {
       await api(url, { method: item.id ? "PUT" : "POST", body: fd });
       closeModal();
-      await loadItems();
+      await loadItems(false);
+      if (state.view === "items") renderView();
     } catch (err) {
       const errEl = document.getElementById("itemFormError");
       if (errEl) errEl.textContent = err.message;
@@ -1198,7 +1199,6 @@ function renderPurchases(view) {
 
 function renderNewPurchase(view) {
   const suppliers = state.parties.filter((p) => p.type === "supplier");
-  const datalist = state.items.map((i) => `<option value="${esc(i.code)}" label="${esc(i.name)}"></option>`).join("");
   view.innerHTML = `
     <div class="toolbar">
       <button type="button" class="btn ghost" id="purBack">← Back</button>
@@ -1206,13 +1206,12 @@ function renderNewPurchase(view) {
     </div>
     <div class="pur-pos">
       <div class="pur-pos-left">
-        <div class="pur-search">
-          <input id="purSearch" list="purItemList" placeholder="Search product / barcode" autocomplete="off" />
-          <datalist id="purItemList">${datalist}</datalist>
-          <input id="purQty" type="number" step="0.01" value="1" placeholder="Qty" />
-          <input id="purPurPrice" type="number" step="0.01" placeholder="Purchase ₹" />
-          <input id="purSalePrice" type="number" step="0.01" placeholder="Sale ₹" />
-          <button type="button" class="btn" id="addPurLine">Add</button>
+        <div class="pur-search-wrap">
+          <label for="purSearch" class="pur-search-label">Search product / barcode</label>
+          <div class="pur-search">
+            <input id="purSearch" type="text" placeholder="Type product name or barcode" autocomplete="off" />
+            <div id="purSugg" class="pur-suggestions" style="display:none"></div>
+          </div>
         </div>
         <div class="table-wrap" style="flex:1;min-height:180px">
           <table>
@@ -1255,6 +1254,60 @@ function renderNewPurchase(view) {
       </div>
     </div>`;
   const lines = [];
+  const searchInput = document.getElementById("purSearch");
+  const suggBox = document.getElementById("purSugg");
+  const showSuggestions = () => {
+    const val = searchInput.value.trim().toLowerCase();
+    if (!val) {
+      suggBox.style.display = "none";
+      return;
+    }
+    const matches = state.items.filter((i) => i.name.toLowerCase().includes(val) || i.code.toLowerCase().includes(val));
+    if (matches.length === 0) {
+      suggBox.innerHTML = `<div class="pur-suggestion add-new" id="purAddNew">+ Add new item</div>`;
+    } else {
+      suggBox.innerHTML = matches
+        .slice(0, 8)
+        .map((i) => `<div class="pur-suggestion" data-code="${esc(i.code)}">${esc(i.name)} <span class="muted">${esc(i.code)}</span></div>`)
+        .join("");
+    }
+    suggBox.style.display = "block";
+    suggBox.querySelectorAll(".pur-suggestion").forEach((el) =>
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        if (el.id === "purAddNew") {
+          itemForm();
+          suggBox.style.display = "none";
+        } else {
+          const code = el.dataset.code;
+          const item = state.items.find((i) => i.code === code);
+          if (item) {
+            const purchasePrice = Number(item.purchase_price || 0);
+            const salePrice = Number(item.sale_price || 0);
+            const qty = 1;
+            const taxable = qty * purchasePrice;
+            const lineTax = Math.round(taxable * (item.gst_percent || 0) / 100 * 100) / 100;
+            lines.push({
+              item_id: item.id,
+              code: item.code,
+              name: item.name,
+              quantity: qty,
+              price: purchasePrice,
+              sale_price: salePrice,
+              gst_percent: item.gst_percent || 0,
+              line_total: Math.round((taxable + lineTax) * 100) / 100,
+            });
+            searchInput.value = "";
+            suggBox.style.display = "none";
+            draw();
+          }
+        }
+      })
+    );
+  };
+  searchInput.addEventListener("input", showSuggestions);
+  searchInput.addEventListener("focus", showSuggestions);
+  searchInput.addEventListener("blur", () => (suggBox.style.display = "none"));
   const draw = () => {
     const tbody = document.getElementById("purLineBody");
     tbody.innerHTML = lines
@@ -1265,7 +1318,7 @@ function renderNewPurchase(view) {
           <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
           <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
           <td><input type="number" step="0.01" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
-          <td>${money(l.gst_percent)}</td>
+          <td><input type="number" step="0.01" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
           <td>₹ ${money(l.line_total)}</td>
           <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
         </tr>
@@ -1303,36 +1356,6 @@ function renderNewPurchase(view) {
     );
   };
   document.getElementById("purPaid").addEventListener("input", draw);
-  document.getElementById("addPurLine").addEventListener("click", () => {
-    const code = document.getElementById("purSearch").value.trim();
-    const item = state.items.find((i) => i.code === code);
-    if (!item) {
-      return setStatus("Select a valid product", "error");
-    }
-    const purchasePrice = Number(document.getElementById("purPurPrice").value || item.purchase_price || 0);
-    const salePrice = Number(document.getElementById("purSalePrice").value || item.sale_price || 0);
-    const qty = Number(document.getElementById("purQty").value || 1);
-    if (purchasePrice < 0 || salePrice < 0) return setStatus("Prices cannot be negative", "error");
-    if (salePrice <= purchasePrice && salePrice > 0) return setStatus("Sale price must be higher than purchase price", "error");
-    const taxable = qty * purchasePrice;
-    const lineTax = Math.round(taxable * (item.gst_percent || 0) / 100 * 100) / 100;
-    lines.push({
-      item_id: item.id,
-      code: item.code,
-      name: item.name,
-      quantity: qty,
-      price: purchasePrice,
-      sale_price: salePrice,
-      gst_percent: item.gst_percent || 0,
-      line_total: Math.round((taxable + lineTax) * 100) / 100,
-    });
-    document.getElementById("purSearch").value = "";
-    document.getElementById("purPurPrice").value = "";
-    document.getElementById("purSalePrice").value = "";
-    document.getElementById("purQty").value = "1";
-    draw();
-    document.getElementById("purSearch").focus();
-  });
   document.getElementById("purForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);

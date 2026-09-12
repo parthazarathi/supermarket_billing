@@ -728,7 +728,7 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
   gap: 20px;
   align-items: stretch;
   height: calc(100vh - 160px);
-  overflow: hidden;
+  overflow: visible;
 }
 .pur-pos-left,
 .pur-pos-right {
@@ -745,22 +745,63 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .pur-pos-right .order-summary {
   overflow-y: auto;
 }
+.pur-search-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pur-search-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
 .pur-search {
+  position: relative;
   display: flex;
   gap: 8px;
   align-items: stretch;
   flex-wrap: wrap;
 }
-.pur-search input:first-child {
-  flex: 1;
-  min-width: 160px;
-}
 .pur-search input {
-  min-width: 80px;
-  flex: 0 1 120px;
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  font-size: 14px;
 }
-.pur-search .btn {
-  white-space: nowrap;
+.pur-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pur-suggestion {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 14px;
+}
+.pur-suggestion:hover,
+.pur-suggestion.active {
+  background: var(--bg-tertiary);
+}
+.pur-suggestion.add-new {
+  color: var(--primary);
+  font-weight: 600;
+}
+.pur-suggestion .muted {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-left: 6px;
 }
 #purLineBody input {
   width: 100%;
