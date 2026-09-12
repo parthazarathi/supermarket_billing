@@ -1007,7 +1007,7 @@ function itemForm(item = {}) {
         <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
       </label>
       <label>Purchase price
-        <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
+        <input name="purchase_price" type="number" step="0.01" min="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" required />
       </label>
       <label>MRP
         <input name="mrp" type="number" step="0.01" min="0.01" placeholder="MRP" value="${item.mrp || item.sale_price || ""}" required />
