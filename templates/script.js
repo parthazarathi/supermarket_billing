@@ -526,24 +526,23 @@ function renderPos(view) {
     if (!q) {
       suggestionsEl.innerHTML = "";
       suggestionsEl.classList.remove("open");
+      matches = [];
+      selectedIndex = -1;
       return;
     }
-    matches = state.items
+    const found = state.items
       .filter((i) =>
         i.name.toLowerCase().includes(q.toLowerCase()) ||
         i.code.toLowerCase().includes(q.toLowerCase())
       )
       .slice(0, 8);
-    selectedIndex = -1;
-    if (matches.length === 0) {
-      suggestionsEl.innerHTML = "";
-      suggestionsEl.classList.remove("open");
-      return;
-    }
+    matches = found.length ? found : [{ isNew: true, code: q, name: "+ Add new item", q }];
+    selectedIndex = found.length ? -1 : 0;
     suggestionsEl.innerHTML = matches
       .map(
-        (item, idx) => `
-      <div class="search-suggestion" role="option" data-idx="${idx}" data-code="${esc(item.code)}" tabindex="-1" aria-selected="false">
+        (item, idx) => item.isNew
+          ? `<div class="search-suggestion add-new" role="option" data-idx="${idx}" tabindex="-1" aria-selected="false">+ Add new item for "${esc(q)}"</div>`
+          : `<div class="search-suggestion" role="option" data-idx="${idx}" data-code="${esc(item.code)}" tabindex="-1" aria-selected="false">
         <span class="suggestion-name">${esc(item.name)}</span>
         <span class="suggestion-meta">${esc(item.code)} · ₹ ${money(item.sale_price)} · Stock: ${money(item.stock)} ${esc(item.unit)}</span>
       </div>`
@@ -555,6 +554,15 @@ function renderPos(view) {
   const selectSuggestion = async (idx) => {
     if (idx < 0 || idx >= matches.length) return;
     const item = matches[idx];
+    if (item.isNew) {
+      itemForm({ code: item.q });
+      search.value = "";
+      suggestionsEl.innerHTML = "";
+      suggestionsEl.classList.remove("open");
+      matches = [];
+      selectedIndex = -1;
+      return;
+    }
     await addCode(item.code);
     search.value = "";
     suggestionsEl.innerHTML = "";
@@ -587,7 +595,8 @@ function renderPos(view) {
     const exact = state.items.find((i) => i.code.toLowerCase() === q.toLowerCase());
     const match = exact || state.items.find((i) => i.name.toLowerCase().includes(q.toLowerCase()));
     if (!match) {
-      setStatus("Item not found", "error");
+      itemForm({ code: q });
+      search.value = "";
       return;
     }
     await addCode(match.code);

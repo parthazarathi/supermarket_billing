@@ -962,6 +962,11 @@ kbd {
   background: var(--bg-secondary);
   border-left: 3px solid var(--primary);
 }
+.search-suggestion.add-new {
+  color: var(--primary);
+  font-weight: 600;
+  text-align: center;
+}
 
 .suggestion-name {
   display: block;
