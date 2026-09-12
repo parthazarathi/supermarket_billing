@@ -1091,12 +1091,28 @@ kbd {
   padding-right: 4px;
 }
 
-.order-summary {
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 12px;
-  box-shadow: var(--shadow-sm);
+.order-summary label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.order-summary .summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 14px;
+}
+.order-summary .summary-row.total {
+  font-weight: 700;
+  font-size: 16px;
+  border-top: 2px solid var(--border-medium);
+  border-bottom: none;
+  margin-top: 4px;
 }
 
 .summary-header {

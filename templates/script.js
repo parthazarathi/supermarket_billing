@@ -278,6 +278,9 @@ async function switchView(view) {
     if (view === "parties") await loadParties();
     if (view === "sales") await loadSales();
     if (view === "purchases") await loadPurchases();
+    if (view === "new-purchase") {
+      // local state, no server load needed
+    }
     if (view === "expenses") await loadExpenses();
     if (view === "reports") await loadReports();
     if (view === "settings") await loadSettings();
@@ -300,6 +303,7 @@ function renderView() {
     parties: renderParties,
     sales: renderSales,
     purchases: renderPurchases,
+    'new-purchase': renderNewPurchase,
     expenses: renderExpenses,
     reports: renderReports,
     settings: renderSettings,
@@ -1189,14 +1193,17 @@ function renderPurchases(view) {
         </tbody>
       </table>
     </div>`;
-  document.getElementById("newPurchase").addEventListener("click", purchaseForm);
+  document.getElementById("newPurchase").addEventListener("click", () => switchView("new-purchase"));
 }
 
-function purchaseForm() {
+function renderNewPurchase(view) {
   const suppliers = state.parties.filter((p) => p.type === "supplier");
   const datalist = state.items.map((i) => `<option value="${esc(i.code)}" label="${esc(i.name)}"></option>`).join("");
-  openModal(`
-    <h3 class="full">New purchase</h3>
+  view.innerHTML = `
+    <div class="toolbar">
+      <button type="button" class="btn ghost" id="purBack">← Back</button>
+      <h3 style="margin:0">New purchase</h3>
+    </div>
     <div class="pur-pos">
       <div class="pur-pos-left">
         <div class="pur-search">
@@ -1240,9 +1247,13 @@ function purchaseForm() {
             <input name="paid" id="purPaid" type="number" step="0.01" value="0" />
           </label>
           <div class="summary-row"><span>Balance</span><span id="purBalance">₹ 0.00</span></div>
+          <div class="full" style="margin-top:12px">
+            <button type="submit" class="btn green full" id="purSave">Save purchase</button>
+            <button type="button" class="btn ghost full" id="purCancel" style="margin-top:8px">Cancel</button>
+          </div>
         </form>
       </div>
-    </div>`, "purForm", "modal-wide");
+    </div>`;
   const lines = [];
   const draw = () => {
     const tbody = document.getElementById("purLineBody");
@@ -1330,14 +1341,16 @@ function purchaseForm() {
         method: "POST",
         body: { party_id: fd.get("party_id") || null, paid: fd.get("paid"), items: lines },
       });
-      closeModal();
       await loadPurchases();
       await loadItems(false);
       setStatus("Purchase saved", "ok");
+      switchView("purchases");
     } catch (err) {
       setStatus(err.message, "error");
     }
   });
+  document.getElementById("purBack").addEventListener("click", () => switchView("purchases"));
+  document.getElementById("purCancel").addEventListener("click", () => switchView("purchases"));
 }
 
 function renderExpenses(view) {
