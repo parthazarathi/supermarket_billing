@@ -368,7 +368,7 @@ function renderPos(view) {
             <div class="search-section">
               <div class="search-row">
                 <div class="search-input-wrap">
-                  <input id="productSearch" placeholder="Scan barcode or type product name" autofocus aria-label="Product search" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggestions" />
+                  <input id="productSearch" placeholder="Scan barcode or type product name" aria-label="Product search" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggestions" />
                   <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions"></div>
                 </div>
                 <button class="btn" id="addBtn" aria-label="Add product from search">Add</button>
