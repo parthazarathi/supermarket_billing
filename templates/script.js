@@ -1326,7 +1326,7 @@ function renderNewPurchase(view) {
               quantity: qty,
               price: purchasePrice,
               mrp: mrp,
-              sale_price: null,
+              sale_price: mrp,
               gst_percent: gstPercent,
               line_total: Math.round((taxable + lineTax) * 100) / 100,
             });
@@ -1354,12 +1354,14 @@ function renderNewPurchase(view) {
       const mrp = Number(l.mrp);
       const price = Number(l.price);
       const qty = Number(l.quantity);
+      const sale = Number(l.sale_price);
       if (isNaN(qty) || qty < 0) err = "Quantity cannot be negative";
       else if (isNaN(price) || price < 0) err = "Purchase price cannot be negative";
       else if (isNaN(mrp) || mrp <= 0) err = "MRP is required and must be greater than 0";
       else if (mrp <= price) err = "MRP must be higher than purchase price";
-      else if (l.sale_price !== null && !isNaN(Number(l.sale_price)) && l.sale_price <= 0) err = "Sale price must be greater than 0";
-      else if (l.sale_price !== null && !isNaN(Number(l.sale_price)) && l.sale_price <= price) err = "Sale price must be higher than purchase price";
+      else if (isNaN(sale) || sale <= 0) err = "Sale price must be greater than 0";
+      else if (sale <= price) err = "Sale price must be higher than purchase price";
+      else if (sale > mrp) err = "Sale price cannot be greater than MRP";
       l._error = err;
     }
     const total = Math.round((subtotal + tax) * 100) / 100;
@@ -1377,7 +1379,7 @@ function renderNewPurchase(view) {
           <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
           <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
           <td><input type="number" step="0.01" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
-          <td><input type="number" step="0.01" value="${l.sale_price === null ? "" : money(l.sale_price)}" data-i="${i}" data-f="sale_price" placeholder="MRP" /></td>
+          <td><input type="number" step="0.01" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
           <td><input type="number" step="0.01" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
           <td>₹ ${money(l.line_total)}</td>
           <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
@@ -1401,13 +1403,14 @@ function renderNewPurchase(view) {
         const l = lines[li];
         const raw = e.target.value.trim();
         if (field === "sale_price") {
-          if (raw === "") {
-            l.sale_price = null;
-          } else {
-            l.sale_price = Number(raw) || 0;
-          }
+          l.sale_price = raw === "" ? l.mrp : Number(raw) || 0;
         } else if (field === "mrp") {
-          l.mrp = Number(raw) || 0;
+          const newMrp = Number(raw) || 0;
+          const oldMrp = l.mrp;
+          l.mrp = newMrp;
+          if (Number(l.sale_price) === Number(oldMrp)) {
+            l.sale_price = newMrp;
+          }
         } else if (field === "price" || field === "quantity") {
           l[field] = Number(raw) || 0;
         } else {
