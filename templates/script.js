@@ -990,7 +990,7 @@ function itemForm(item = {}) {
     .join("");
   openModal(`
     <h3>${item.id ? "Edit item" : "New item"}</h3>
-    <form id="itemForm" class="form-grid">
+    <form id="itemForm" class="form-grid" novalidate>
       <label class="full">Barcode / Code
         <input name="code" placeholder="Barcode / code" value="${esc(item.code || "")}" required />
       </label>
@@ -1029,6 +1029,23 @@ function itemForm(item = {}) {
   document.getElementById("itemForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
+    const errEl = document.getElementById("itemFormError");
+    const purchase = Number(fd.purchase_price) || 0;
+    const mrp = Number(fd.mrp) || 0;
+    const stock = Number(fd.stock) || 0;
+    const sale = fd.sale_price ? Number(fd.sale_price) : 0;
+    let msg = "";
+    if (!fd.code || !fd.code.trim()) msg = "Barcode / Code is required";
+    else if (!fd.name || !fd.name.trim()) msg = "Name is required";
+    else if (purchase <= 0) msg = "Purchase price must be greater than 0";
+    else if (mrp <= 0) msg = "MRP must be greater than 0";
+    else if (stock <= 0) msg = "Stock must be greater than 0";
+    else if (sale > 0 && sale <= purchase) msg = "Sale price must be higher than purchase price";
+    else if (sale > 0 && sale > mrp) msg = "Sale price cannot be greater than MRP";
+    if (msg) {
+      if (errEl) errEl.textContent = msg;
+      return;
+    }
     const url = item.id ? `/api/items/${item.id}` : "/api/items";
     try {
       await api(url, { method: item.id ? "PUT" : "POST", body: fd });
