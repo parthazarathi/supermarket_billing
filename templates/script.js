@@ -863,8 +863,20 @@ async function syncCustomer(partyId = null) {
 
 async function addCode(code) {
   try {
+    const item = state.items.find((i) => i.code === code);
+    if (!item) {
+      return setStatus("Product not found", "error");
+    }
+    const sale = Number(item.sale_price) || 0;
+    const purchase = Number(item.purchase_price) || 0;
+    if (sale <= 0) {
+      return setStatus(`Sale price must be greater than 0 for ${esc(item.name)}`, "error");
+    }
+    if (sale <= purchase) {
+      return setStatus(`Sale price must be higher than purchase price for ${esc(item.name)}`, "error");
+    }
     applyCart(await api("/add_to_cart", { method: "POST", body: { code, quantity: 1 } }));
-    setStatus(`Added ${code}`, "ok");
+    setStatus(`Added ${esc(item.name)}`, "ok");
   } catch (err) {
     setStatus(err.message, "error");
   }

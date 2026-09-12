@@ -363,6 +363,15 @@ app.post('/add_to_cart', loginRequired, (req, res) => {
     return res.status(404).json(jsonError('Product not found'));
   }
 
+  const sale = parseFloat(product.sale_price) || 0;
+  const purchase = parseFloat(product.purchase_price) || 0;
+  if (sale <= 0) {
+    return res.status(400).json(jsonError(`Sale price must be greater than 0 for ${product.name}`));
+  }
+  if (sale <= purchase) {
+    return res.status(400).json(jsonError(`Sale price must be higher than purchase price for ${product.name}`));
+  }
+
   const cart = getCart(req);
   const qty = parseFloat(quantity) || 1;
 
