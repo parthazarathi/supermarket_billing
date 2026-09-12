@@ -1010,13 +1010,13 @@ function itemForm(item = {}) {
         <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
       </label>
       <label>MRP
-        <input name="mrp" type="number" step="0.01" placeholder="MRP" value="${item.mrp ?? item.sale_price ?? ""}" />
+        <input name="mrp" type="number" step="0.01" min="0.01" placeholder="MRP" value="${item.mrp || item.sale_price || ""}" required />
       </label>
       <label>GST %
         <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
       </label>
       <label>Stock
-        <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
+        <input name="stock" type="number" step="0.01" min="0.01" placeholder="Stock" value="${item.stock ?? 0}" required />
       </label>
       <label>Unit
         <select name="unit">${unitOpts}</select>
