@@ -389,6 +389,7 @@ function renderPos(view) {
                   <tr>
                     <th>Item</th>
                     <th>Purchase Price</th>
+                    <th>MRP</th>
                     <th>Sale Price</th>
                     <th>Qty</th>
                     <th>Discount</th>
@@ -403,6 +404,7 @@ function renderPos(view) {
                     <tr role="row">
                       <td><strong>${esc(item.name)}</strong></td>
                       <td>₹ ${money(item.purchase_price || 0)}</td>
+                      <td>₹ ${money(item.mrp || item.price)}</td>
                       <td>₹ ${money(item.price)}</td>
                       <td>
                         <div class="qty-control-inline">
@@ -415,7 +417,7 @@ function renderPos(view) {
                       <td>₹ ${money(item.line_total)}</td>
                     </tr>`
                       )
-                      .join("") || `<tr><td colspan="6" class="empty-cart">Scan or search products to add them to the order</td></tr>`
+                      .join("") || `<tr><td colspan="7" class="empty-cart">Scan or search products to add them to the order</td></tr>`
                   }
                 </tbody>
               </table>

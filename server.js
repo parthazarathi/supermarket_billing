@@ -386,6 +386,7 @@ app.post('/add_to_cart', loginRequired, (req, res) => {
       item_id: product.id,
       name: product.name,
       price: parseFloat(product.sale_price),
+      mrp: parseFloat(product.mrp) || parseFloat(product.sale_price) || 0,
       category: product.category || 'General',
       quantity: Math.max(0.001, qty),
       gst_percent: parseFloat(product.gst_percent) || 0,
