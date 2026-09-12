@@ -705,6 +705,8 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .modal[aria-hidden="false"], .scanner-modal[aria-hidden="false"] { display: flex; }
 .modal-card, .scanner-content {
   width: min(720px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--surface);
   border-radius: var(--radius-xl);
   padding: 24px;
