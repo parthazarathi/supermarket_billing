@@ -1,0 +1,14 @@
+{
+  "P1001": { "name": "Amul Milk 1L", "price": 60.0, "category": "Dairy" },
+  "P1002": { "name": "Bread Loaf", "price": 40.0, "category": "Bakery" },
+  "P1003": { "name": "Basmati Rice 1kg", "price": 120.0, "category": "Grains" },
+  "P1004": { "name": "Fortune Oil 1L", "price": 150.0, "category": "Grocery" },
+  "P1005": { "name": "Maggie Noodles", "price": 15.0, "category": "Snacks" },
+  "P1006": { "name": "Coca Cola 1.25L", "price": 45.0, "category": "Beverages" },
+  "P1007": { "name": "Parle-G Biscuits", "price": 10.0, "category": "Snacks" },
+  "P1008": { "name": "Dove Soap", "price": 35.0, "category": "Personal Care" },
+  "P1009": { "name": "Colgate Toothpaste", "price": 95.0, "category": "Personal Care" },
+  "P1010": { "name": "Tomatoes 1kg", "price": 30.0, "category": "Produce" }
+}
+
+

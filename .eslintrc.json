@@ -1,0 +1,27 @@
+{
+  "env": {
+    "node": true,
+    "es2021": true
+  },
+  "extends": "eslint:recommended",
+  "parserOptions": {
+    "ecmaVersion": 12,
+    "sourceType": "module"
+  },
+  "rules": {
+    "indent": ["warn", 2],
+    "linebreak-style": ["off"],
+    "quotes": ["off"],
+    "semi": ["warn", "always"],
+    "no-unused-vars": ["warn"],
+    "no-console": "off",
+    "no-const-assign": "warn",
+    "no-unreachable": "warn"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "dist/",
+    "data/",
+    "templates/"
+  ]
+}

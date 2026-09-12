@@ -1,0 +1,1255 @@
+const express = require('express');
+const helmet = require('helmet');
+const session = require('express-session');
+const path = require('path');
+const { getResourceDir } = require('./lib/paths');
+const { initDatabase } = require('./lib/database');
+const { seedItemsFromJson } = require('./lib/items');
+
+// Import business logic modules
+const { authenticate, listUsers, createUser, updateUserPassword, deleteUser, getUserById } = require('./lib/users');
+const { getSetting, getSettings, setSettings } = require('./lib/settings');
+const { listItems, getItemByCode, getItem, categories, saveItem, deleteItem } = require('./lib/items');
+const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCreditLimit } = require('./lib/parties');
+const { calculateCartTotals } = require('./lib/cart');
+const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn } = require('./lib/invoices');
+const { completePurchase, listPurchases, getPurchase } = require('./lib/purchases');
+const { addExpense, listExpenses, deleteExpense } = require('./lib/expenses');
+const { holdBill, listHeldBills, recallHeldBill } = require('./lib/heldBills');
+const { dashboard, reports } = require('./lib/reports');
+const { generateInvoicePDF } = require('./lib/pdfGenerator');
+const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
+const { formatBillText, sendWhatsAppMessage } = require('./lib/whatsapp');
+const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, restoreDatabase, tryAutoBackup, DriveError } = require('./lib/driveSync');
+const { createEstimate, listEstimates, getEstimate, getEstimateByNo, updateEstimate, convertEstimateToInvoice, deleteEstimate } = require('./lib/estimates');
+const { createDeliveryChallan, listDeliveryChallans, getDeliveryChallan, getDeliveryChallanByNo, updateDeliveryChallanStatus, linkChallanToInvoice, deleteDeliveryChallan } = require('./lib/deliveryChallans');
+const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getCreditNote, getDebitNote, updateCreditNoteStatus, updateDebitNoteStatus, deleteCreditNote, deleteDebitNote } = require('./lib/creditDebitNotes');
+const { createPurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderByNo, updatePurchaseOrderStatus, convertPurchaseOrderToPurchase, deletePurchaseOrder } = require('./lib/purchaseOrders');
+const { listAccounts, getAccount, saveAccount, deleteAccount, createTransaction, listAccountTransactions, getDefaultAccount } = require('./lib/accounts');
+
+const ROLE_LEVEL = { cashier: 1, manager: 2, admin: 3 };
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for development (enable in production)
+  crossOriginEmbedderPolicy: false
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.FLASK_SECRET_KEY || 'dev-secret-key-change-me',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false } // Set to true in production with HTTPS
+}));
+
+// Serve static files from templates directory
+const templatesDir = path.join(__dirname, 'templates');
+app.use('/style.css', express.static(path.join(templatesDir, 'style.css')));
+app.use('/script.js', express.static(path.join(templatesDir, 'script.js')));
+
+// Helper functions
+function jsonError(message, status = 400) {
+  return { ok: false, error: message };
+}
+
+function currentUser(req) {
+  return req.session.user || null;
+}
+
+function loginRequired(req, res, next) {
+  if (!currentUser(req)) {
+    return res.status(401).json(jsonError('Login required'));
+  }
+  next();
+}
+
+function requireRole(minRole) {
+  return (req, res, next) => {
+    const user = currentUser(req);
+    if (!user) {
+      return res.status(401).json(jsonError('Login required'));
+    }
+    const userLevel = ROLE_LEVEL[user.role] || 0;
+    const requiredLevel = ROLE_LEVEL[minRole] || 99;
+    if (userLevel < requiredLevel) {
+      return res.status(403).json(jsonError('Not allowed for this role'));
+    }
+    next();
+  };
+}
+
+function getPosId(req) {
+  return ((req.body || {}).pos_id) || (req.query || {}).pos_id || 'default';
+}
+
+function getCartState(req) {
+  const posId = getPosId(req);
+  if (!req.session.carts) {
+    req.session.carts = {};
+  }
+  if (!req.session.carts[posId]) {
+    req.session.carts[posId] = {
+      items: {},
+      billDiscount: 0,
+      partyId: null,
+      partyName: '',
+      partyPhone: '',
+    };
+  }
+  return { posId, state: req.session.carts[posId] };
+}
+
+function getCart(req) {
+  return getCartState(req).state.items;
+}
+
+function saveCart(req, cart) {
+  getCartState(req).state.items = cart;
+}
+
+function cartPayload(req) {
+  const { state } = getCartState(req);
+  const discount = parseFloat(state.billDiscount) || 0;
+  const totals = calculateCartTotals(state.items, discount);
+  totals.party_id = state.partyId;
+  totals.party_name = state.partyName || '';
+  totals.party_phone = state.partyPhone || '';
+  return totals;
+}
+
+async function maybeAutoBackup() {
+  const autoBackup = getSetting('drive_auto_backup', '0');
+  if (autoBackup !== '1') {
+    return;
+  }
+  try {
+    await tryAutoBackup();
+  } catch (error) {
+    console.error('Auto-backup failed:', error);
+  }
+}
+
+// Routes
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'templates', 'index.html');
+  res.sendFile(indexPath);
+});
+
+// API: Current user info
+app.get('/api/me', (req, res) => {
+  const user = currentUser(req);
+  if (!user) {
+    return res.json({ ok: true, user: null, settings: getSettings() });
+  }
+  res.json({
+    ok: true,
+    user: user,
+    settings: getSettings(),
+    drive: driveStatus()
+  });
+});
+
+// Authentication
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = authenticate(username, password);
+  if (!user) {
+    return res.status(401).json(jsonError('Invalid username or password'));
+  }
+  req.session.user = user;
+  req.session.carts = { default: { items: {}, billDiscount: 0, partyId: null, partyName: '', partyPhone: '' } };
+  res.json({ ok: true, user: user, settings: getSettings() });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ ok: true });
+});
+
+// Dashboard
+app.get('/api/dashboard', loginRequired, (req, res) => {
+  res.json({ ok: true, dashboard: dashboard() });
+});
+
+// Items
+app.get('/api/items', loginRequired, (req, res) => {
+  const search = req.query.q || '';
+  const category = req.query.category || '';
+  res.json({
+    ok: true,
+    items: listItems(search, category),
+    categories: categories()
+  });
+});
+
+app.post('/api/items', requireRole('manager'), (req, res) => {
+  try {
+    const item = saveItem(req.body);
+    res.json({ ok: true, item: item });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/items/:id', requireRole('manager'), (req, res) => {
+  try {
+    const item = saveItem(req.body, parseInt(req.params.id));
+    res.json({ ok: true, item: item });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/items/:id', requireRole('manager'), (req, res) => {
+  deleteItem(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Parties
+app.get('/api/parties', loginRequired, (req, res) => {
+  const type = req.query.type || '';
+  res.json({ ok: true, parties: listParties(type) });
+});
+
+app.post('/api/parties', requireRole('manager'), (req, res) => {
+  try {
+    const party = saveParty(req.body);
+    res.json({ ok: true, party: party });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/parties/:id', requireRole('manager'), (req, res) => {
+  try {
+    const party = saveParty(req.body, parseInt(req.params.id));
+    res.json({ ok: true, party: party });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/parties/:id', requireRole('manager'), (req, res) => {
+  deleteParty(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+app.post('/api/parties/:id/payment', requireRole('manager'), (req, res) => {
+  try {
+    const payment = addPartyPayment(
+      parseInt(req.params.id),
+      parseFloat(req.body.amount),
+      req.body.method || 'Cash',
+      req.body.note || ''
+    );
+    const party = getParty(parseInt(req.params.id));
+    res.json({ ok: true, payment: payment, party: party });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/parties/:id/credit-check', loginRequired, (req, res) => {
+  try {
+    const additionalAmount = parseFloat(req.query.amount) || 0;
+    const creditCheck = checkCreditLimit(parseInt(req.params.id), additionalAmount);
+    res.json({ ok: true, credit_check: creditCheck });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Cart operations
+app.post('/api/next-bill-no', loginRequired, (req, res) => {
+  if (!req.session.billCounter) {
+    req.session.billCounter = 0;
+  }
+  if (!req.session.billFree) {
+    req.session.billFree = [];
+  }
+  if (!req.session.billNos) {
+    req.session.billNos = [];
+  }
+
+  const today = new Date();
+  const dayPrefix = today.getFullYear().toString() +
+    String(today.getMonth() + 1).padStart(2, '0') +
+    String(today.getDate()).padStart(2, '0');
+
+  let seq;
+  let safety = 0;
+  do {
+    if (req.session.billFree.length > 0) {
+      seq = req.session.billFree.shift();
+    } else {
+      req.session.billCounter += 1;
+      seq = req.session.billCounter;
+    }
+    safety += 1;
+  } while (req.session.billNos.includes(seq) && safety < 1000);
+
+  if (!req.session.billNos.includes(seq)) {
+    req.session.billNos.push(seq);
+  }
+
+  const billNo = `BILL-${dayPrefix}-${String(seq).padStart(4, '0')}`;
+  res.json({ ok: true, bill_no: billNo });
+});
+
+app.post('/api/release-bill-no', loginRequired, (req, res) => {
+  const { bill_no } = req.body || {};
+  if (!bill_no || !bill_no.startsWith('BILL-')) {
+    return res.json({ ok: true });
+  }
+  const parts = bill_no.split('-');
+  if (parts.length === 3) {
+    const seq = parseInt(parts[2], 10);
+    if (!isNaN(seq)) {
+      if (!req.session.billFree) {
+        req.session.billFree = [];
+      }
+      if (!req.session.billNos) {
+        req.session.billNos = [];
+      }
+      req.session.billNos = req.session.billNos.filter((n) => n !== seq);
+      if (!req.session.billFree.includes(seq)) {
+        req.session.billFree.push(seq);
+        req.session.billFree.sort((a, b) => a - b);
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/reserve-bill-no', loginRequired, (req, res) => {
+  const { bill_no } = req.body || {};
+  if (!bill_no || !bill_no.startsWith('BILL-')) {
+    return res.json({ ok: true });
+  }
+  const parts = bill_no.split('-');
+  if (parts.length === 3) {
+    const seq = parseInt(parts[2], 10);
+    if (!isNaN(seq)) {
+      if (!req.session.billNos) {
+        req.session.billNos = [];
+      }
+      if (!req.session.billNos.includes(seq)) {
+        req.session.billNos.push(seq);
+      }
+      if (!req.session.billCounter || req.session.billCounter < seq) {
+        req.session.billCounter = seq;
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+app.get('/cart', loginRequired, (req, res) => {
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/add_to_cart', loginRequired, (req, res) => {
+  const { code, quantity } = req.body;
+  if (!code) {
+    return res.status(400).json(jsonError('Product code is required'));
+  }
+
+  const product = getItemByCode(code);
+  if (!product) {
+    return res.status(404).json(jsonError('Product not found'));
+  }
+
+  const cart = getCart(req);
+  const qty = parseFloat(quantity) || 1;
+
+  if (cart[code]) {
+    cart[code].quantity = parseFloat(cart[code].quantity) + qty;
+  } else {
+    cart[code] = {
+      item_id: product.id,
+      name: product.name,
+      price: parseFloat(product.sale_price),
+      category: product.category || 'General',
+      quantity: Math.max(0.001, qty),
+      gst_percent: parseFloat(product.gst_percent) || 0,
+      discount: 0,
+      purchase_price: parseFloat(product.purchase_price) || 0,
+      stock: product.stock,
+      unit: product.unit || 'pcs'
+    };
+  }
+
+  saveCart(req, cart);
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/update_item', loginRequired, (req, res) => {
+  const { code, quantity, discount, price } = req.body;
+  const cart = getCart(req);
+
+  if (!cart[code]) {
+    return res.status(404).json(jsonError('Item not in cart'));
+  }
+
+  if (quantity !== undefined) {
+    const qty = parseFloat(quantity) || 0;
+    if (qty <= 0) {
+      delete cart[code];
+    } else {
+      cart[code].quantity = qty;
+    }
+  }
+
+  if (discount !== undefined) {
+    cart[code].discount = Math.max(0, parseFloat(discount) || 0);
+  }
+
+  if (price !== undefined) {
+    cart[code].price = parseFloat(price) || cart[code].price;
+  }
+
+  saveCart(req, cart);
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/remove_item', loginRequired, (req, res) => {
+  const { code } = req.body;
+  const cart = getCart(req);
+  delete cart[code];
+  saveCart(req, cart);
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/api/cart/clear', loginRequired, (req, res) => {
+  getCartState(req).state.items = {};
+  getCartState(req).state.billDiscount = 0;
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/api/cart/discount', loginRequired, (req, res) => {
+  getCartState(req).state.billDiscount = Math.max(0, parseFloat(req.body.discount) || 0);
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/api/cart/party', loginRequired, (req, res) => {
+  const { party_id, party_name, phone } = req.body;
+  const cartState = getCartState(req).state;
+
+  if (party_id) {
+    const party = getParty(parseInt(party_id));
+    if (!party) {
+      return res.status(404).json(jsonError('Party not found'));
+    }
+    cartState.partyId = party.id;
+    cartState.partyName = party.name;
+    cartState.partyPhone = party.phone || '';
+  } else {
+    cartState.partyId = null;
+    cartState.partyName = party_name || 'Walk-in Customer';
+    cartState.partyPhone = phone || '';
+  }
+
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/api/cart/hold', loginRequired, (req, res) => {
+  const cartState = getCartState(req).state;
+  const cart = cartState.items;
+  if (!cart || Object.keys(cart).length === 0) {
+    return res.status(400).json(jsonError('Cart is empty'));
+  }
+
+  const payload = {
+    items: cart,
+    discount: cartState.billDiscount || 0
+  };
+
+  const held = holdBill(req.body.name || 'Held bill', payload, currentUser(req).id);
+  cartState.items = {};
+  cartState.billDiscount = 0;
+
+  res.json({ ok: true, held: held, cart: cartPayload(req) });
+});
+
+app.get('/api/cart/held', loginRequired, (req, res) => {
+  res.json({ ok: true, held: listHeldBills(currentUser(req).id) });
+});
+
+app.post('/api/cart/recall/:id', loginRequired, (req, res) => {
+  try {
+    const held = recallHeldBill(parseInt(req.params.id));
+    const payload = held.cart;
+    const cartState = getCartState(req).state;
+    cartState.items = payload.items || payload;
+    cartState.billDiscount = payload.discount || 0;
+    res.json({ ok: true, cart: cartPayload(req) });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Sales
+app.post('/checkout', loginRequired, (req, res) => {
+  const cart = getCart(req);
+  if (!cart || Object.keys(cart).length === 0) {
+    return res.status(400).json(jsonError('Cart is empty'));
+  }
+  res.json({ ok: true, cart: cartPayload(req) });
+});
+
+app.post('/api/sale', loginRequired, async (req, res) => {
+  try {
+    const cart = getCart(req);
+    if (!cart || Object.keys(cart).length === 0) {
+      return res.status(400).json(jsonError('Cart is empty'));
+    }
+
+    const state = getCartState(req).state;
+    let partyId = state.partyId || req.body.party_id || null;
+    let partyName = state.partyName || req.body.party_name || '';
+    let partyPhone = req.body.phone || state.partyPhone || '';
+
+    const customerName = (req.body.customer_name || '').trim();
+    const customerPhone = (req.body.customer_phone || '').trim();
+
+    // Create customer in DB if name or phone is provided
+    if (customerName || customerPhone) {
+      const newParty = saveParty({
+        name: customerName || 'Customer',
+        type: 'customer',
+        phone: customerPhone,
+      });
+      partyId = newParty.id;
+      partyName = customerName || 'Customer';
+      partyPhone = customerPhone;
+    }
+
+    const invoice = completeSale(cart, {
+      billDiscount: parseFloat(state.billDiscount) || 0,
+      paymentMethod: req.body.payment_method || 'Cash',
+      paid: req.body.paid,
+      partyId: partyId,
+      partyName: partyName,
+      partyPhone: partyPhone,
+      userId: currentUser(req).id
+    });
+
+    state.items = {};
+    state.billDiscount = 0;
+
+    // Auto-backup if enabled
+    await maybeAutoBackup();
+
+    // WhatsApp integration
+    let whatsapp = { ok: true, provider: 'none' };
+    if (req.body.send_whatsapp && customerPhone) {
+      try {
+        const billText = formatBillText(invoice);
+        whatsapp = await sendWhatsAppMessage(customerPhone, billText);
+      } catch (error) {
+        console.error('WhatsApp error:', error);
+        whatsapp = { ok: false, error: error.message, provider: 'whatsapp' };
+      }
+    }
+
+    res.json({ ok: true, invoice: invoice, whatsapp: whatsapp, cart: cartPayload(req) });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/send_bill', loginRequired, async (req, res) => {
+  try {
+    const cart = getCart(req);
+    if (!cart || Object.keys(cart).length === 0) {
+      return res.status(400).json(jsonError('Cart is empty'));
+    }
+
+    const state = getCartState(req).state;
+    const invoice = completeSale(cart, {
+      billDiscount: parseFloat(state.billDiscount) || 0,
+      paymentMethod: req.body.payment_method || 'Cash',
+      paid: null,
+      partyId: state.partyId,
+      partyName: state.partyName || '',
+      partyPhone: req.body.phone || '',
+      userId: currentUser(req).id
+    });
+
+    state.items = {};
+    state.billDiscount = 0;
+
+    // Auto-backup if enabled
+    await maybeAutoBackup();
+
+    // WhatsApp integration
+    let result = { ok: true, provider: 'none' };
+    if (req.body.phone) {
+      try {
+        const billText = formatBillText(invoice);
+        result = await sendWhatsAppMessage(req.body.phone, billText);
+      } catch (error) {
+        console.error('WhatsApp error:', error);
+        result = { ok: false, error: error.message, provider: 'whatsapp' };
+      }
+    }
+
+    if (result.ok) {
+      return res.json({ ok: true, message: 'Bill saved', provider: result.provider, invoice: invoice });
+    } else {
+      return res.status(500).json(jsonError(result.error || 'Failed to send message'));
+    }
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Invoices
+app.get('/api/invoices', loginRequired, (req, res) => {
+  res.json({ ok: true, invoices: listInvoices() });
+});
+
+app.get('/api/invoices/:id', loginRequired, (req, res) => {
+  const invoice = getInvoice(parseInt(req.params.id));
+  if (!invoice) {
+    return res.status(404).json(jsonError('Invoice not found'));
+  }
+  res.json({ ok: true, invoice: invoice });
+});
+
+app.post('/api/invoices/:id/payment', loginRequired, (req, res) => {
+  try {
+    const invoice = recordInvoicePayment(
+      parseInt(req.params.id),
+      parseFloat(req.body.amount),
+      req.body.method || 'Cash'
+    );
+    res.json({ ok: true, invoice: invoice });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/invoices/:id/return', requireRole('manager'), (req, res) => {
+  try {
+    const returnRecord = createSaleReturn(parseInt(req.params.id), req.body.items || [], currentUser(req).id);
+    res.json({ ok: true, return: returnRecord });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Purchases
+app.get('/api/purchases', requireRole('manager'), (req, res) => {
+  res.json({ ok: true, purchases: listPurchases() });
+});
+
+app.get('/api/purchases/:id', requireRole('manager'), (req, res) => {
+  const purchase = getPurchase(parseInt(req.params.id));
+  if (!purchase) {
+    return res.status(404).json(jsonError('Purchase not found'));
+  }
+  res.json({ ok: true, purchase: purchase });
+});
+
+// Expenses
+app.post('/api/expenses', requireRole('manager'), (req, res) => {
+  try {
+    const expense = addExpense(req.body.category, req.body.amount, req.body.note || '', currentUser(req).id);
+    res.json({ ok: true, expense: expense });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/expenses', requireRole('manager'), (req, res) => {
+  res.json({ ok: true, expenses: listExpenses() });
+});
+
+app.delete('/api/expenses/:id', requireRole('manager'), (req, res) => {
+  deleteExpense(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Settings
+app.get('/api/settings', loginRequired, (req, res) => {
+  const user = currentUser(req);
+  const payload = { 
+    ok: true, 
+    settings: getSettings(),
+    drive: driveStatus()
+  };
+  
+  if (user.role === 'admin') {
+    payload.users = listUsers();
+    const { getDataDir, getDbPath } = require('./lib/paths');
+    payload.data_dir = getDataDir();
+    payload.db_path = getDbPath();
+  }
+  
+  res.json(payload);
+});
+
+app.post('/api/settings', requireRole('admin'), (req, res) => {
+  try {
+    const allowed = {
+      shop_name: true,
+      gstin: true,
+      upi_vpa: true,
+      upi_name: true,
+      gst_type: true,
+      default_gst: true,
+      drive_auto_backup: true,
+      must_change_password: true
+    };
+    
+    const updates = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      if (allowed[key]) {
+        updates[key] = value;
+      }
+    }
+    
+    const settings = setSettings(updates);
+    res.json({ ok: true, settings: settings });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Reports
+app.get('/api/reports', requireRole('manager'), (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) {
+    return res.status(400).json(jsonError('from and to parameters are required'));
+  }
+  try {
+    const reportData = reports(from, to);
+    res.json({ ok: true, reports: reportData });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Users management
+app.get('/api/users', requireRole('admin'), (req, res) => {
+  res.json({ ok: true, users: listUsers() });
+});
+
+app.post('/api/users', requireRole('admin'), (req, res) => {
+  try {
+    const user = createUser(req.body.username, req.body.password, req.body.role);
+    res.json({ ok: true, user: user });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/users/:id/password', loginRequired, (req, res) => {
+  try {
+    const user = currentUser(req);
+    const targetUserId = parseInt(req.params.id);
+    
+    // Allow admin to change any password, or users to change their own
+    if (user.role !== 'admin' && user.id !== targetUserId) {
+      return res.status(403).json(jsonError('Not allowed'));
+    }
+    
+    updateUserPassword(targetUserId, req.body.password);
+    
+    // If user changed their own password, reset must_change_password setting
+    if (user.id === targetUserId) {
+      setSettings({ must_change_password: '0' });
+    }
+    
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/users/:id', requireRole('admin'), (req, res) => {
+  try {
+    deleteUser(parseInt(req.params.id));
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// PDF invoice generation
+app.get('/invoice_pdf', loginRequired, async (req, res) => {
+  try {
+    const invId = req.query.id;
+    const invNo = req.query.inv || req.query.no;
+    let invoice;
+    
+    if (invId) {
+      invoice = getInvoice(parseInt(invId));
+    } else if (invNo) {
+      invoice = getInvoiceByNo(invNo);
+    }
+    
+    if (!invoice) {
+      return res.status(404).send('Invoice not found');
+    }
+    
+    const pdfBuffer = await generateInvoicePDF(invoice);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=invoice-${invoice.invoice_no}.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Failed generating PDF:', error);
+    res.status(500).send('Failed to generate PDF');
+  }
+});
+
+// UPI QR code generation
+app.get('/upi_qr', loginRequired, async (req, res) => {
+  try {
+    const amount = parseFloat(req.query.am || req.query.amount || '0');
+    const note = req.query.tn || req.query.note || 'Mart POS Bill';
+    
+    if (isNaN(amount)) {
+      return res.status(400).send('Invalid amount');
+    }
+    
+    const qrBuffer = await generateUPIQRCode(amount, note);
+    res.setHeader('Content-Type', 'image/png');
+    res.send(qrBuffer);
+  } catch (error) {
+    console.error('Failed generating UPI QR:', error);
+    res.status(500).send('Failed to generate QR code');
+  }
+});
+
+// Google Drive sync routes
+app.get('/api/drive/status', requireRole('admin'), (req, res) => {
+  res.json({ ok: true, drive: driveStatus() });
+});
+
+app.post('/api/drive/connect', requireRole('admin'), async (req, res) => {
+  try {
+    const info = await connectOAuth();
+    res.json({ ok: true, drive: info });
+  } catch (error) {
+    if (error instanceof DriveError) {
+      res.status(400).json(jsonError(error.message));
+    } else {
+      res.status(500).json(jsonError(error.message));
+    }
+  }
+});
+
+app.post('/api/drive/disconnect', requireRole('admin'), (req, res) => {
+  disconnect();
+  res.json({ ok: true, drive: driveStatus() });
+});
+
+app.post('/api/drive/backup', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await backupDatabase();
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    if (error instanceof DriveError) {
+      res.status(400).json(jsonError(error.message));
+    } else {
+      res.status(500).json(jsonError(error.message));
+    }
+  }
+});
+
+app.get('/api/drive/backups', requireRole('admin'), async (req, res) => {
+  try {
+    const files = await listBackups();
+    res.json({ ok: true, files: files });
+  } catch (error) {
+    if (error instanceof DriveError) {
+      res.status(400).json(jsonError(error.message));
+    } else {
+      res.status(500).json(jsonError(error.message));
+    }
+  }
+});
+
+app.post('/api/drive/restore', requireRole('admin'), async (req, res) => {
+  try {
+    const { file_id } = req.body;
+    if (!file_id) {
+      return res.status(400).json(jsonError('file_id is required'));
+    }
+    
+    const result = await restoreDatabase(file_id);
+    
+    // Reinitialize database after restore
+    await initDatabase();
+    req.session.destroy();
+    
+    res.json({ ok: true, ...result, note: 'Database restored. Please log in again.' });
+  } catch (error) {
+    if (error instanceof DriveError) {
+      res.status(400).json(jsonError(error.message));
+    } else {
+      res.status(500).json(jsonError(error.message));
+    }
+  }
+});
+
+// Estimates
+app.get('/api/estimates', loginRequired, (req, res) => {
+  res.json({ ok: true, estimates: listEstimates() });
+});
+
+app.get('/api/estimates/:id', loginRequired, (req, res) => {
+  const estimate = getEstimate(parseInt(req.params.id));
+  if (!estimate) {
+    return res.status(404).json(jsonError('Estimate not found'));
+  }
+  res.json({ ok: true, estimate: estimate });
+});
+
+app.post('/api/estimates', requireRole('manager'), (req, res) => {
+  try {
+    const cart = req.body.cart || {};
+    const estimate = createEstimate(cart, {
+      partyId: req.body.party_id,
+      partyName: req.body.party_name,
+      partyPhone: req.body.party_phone,
+      validUntil: req.body.valid_until,
+      notes: req.body.notes,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, estimate: estimate });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/estimates/:id', requireRole('manager'), (req, res) => {
+  try {
+    const cart = req.body.cart || {};
+    const estimate = updateEstimate(parseInt(req.params.id), cart, {
+      billDiscount: req.body.discount,
+      validUntil: req.body.valid_until,
+      notes: req.body.notes,
+      status: req.body.status
+    });
+    res.json({ ok: true, estimate: estimate });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/estimates/:id/convert', requireRole('manager'), (req, res) => {
+  try {
+    const result = convertEstimateToInvoice(parseInt(req.params.id), {
+      paymentMethod: req.body.payment_method || 'Cash',
+      paid: req.body.paid,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/estimates/:id', requireRole('manager'), (req, res) => {
+  deleteEstimate(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Delivery Challans
+app.get('/api/delivery-challans', loginRequired, (req, res) => {
+  res.json({ ok: true, challans: listDeliveryChallans() });
+});
+
+app.get('/api/delivery-challans/:id', loginRequired, (req, res) => {
+  const challan = getDeliveryChallan(parseInt(req.params.id));
+  if (!challan) {
+    return res.status(404).json(jsonError('Delivery challan not found'));
+  }
+  res.json({ ok: true, challan: challan });
+});
+
+app.post('/api/delivery-challans', requireRole('manager'), (req, res) => {
+  try {
+    const items = req.body.items || [];
+    const challan = createDeliveryChallan(items, {
+      partyId: req.body.party_id,
+      partyName: req.body.party_name,
+      partyAddress: req.body.party_address,
+      invoiceId: req.body.invoice_id,
+      notes: req.body.notes,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, challan: challan });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/delivery-challans/:id/status', requireRole('manager'), (req, res) => {
+  try {
+    const challan = updateDeliveryChallanStatus(parseInt(req.params.id), req.body.status);
+    res.json({ ok: true, challan: challan });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/delivery-challans/:id/link', requireRole('manager'), (req, res) => {
+  try {
+    const challan = linkChallanToInvoice(parseInt(req.params.id), req.body.invoice_id);
+    res.json({ ok: true, challan: challan });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/delivery-challans/:id', requireRole('manager'), (req, res) => {
+  deleteDeliveryChallan(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Credit Notes
+app.get('/api/credit-notes', loginRequired, (req, res) => {
+  res.json({ ok: true, credit_notes: listCreditNotes() });
+});
+
+app.get('/api/credit-notes/:id', loginRequired, (req, res) => {
+  const creditNote = getCreditNote(parseInt(req.params.id));
+  if (!creditNote) {
+    return res.status(404).json(jsonError('Credit note not found'));
+  }
+  res.json({ ok: true, credit_note: creditNote });
+});
+
+app.post('/api/credit-notes', requireRole('manager'), (req, res) => {
+  try {
+    const items = req.body.items || [];
+    const creditNote = createCreditNote(items, {
+      partyId: req.body.party_id,
+      partyName: req.body.party_name,
+      invoiceId: req.body.invoice_id,
+      reason: req.body.reason,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, credit_note: creditNote });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/credit-notes/:id/status', requireRole('manager'), (req, res) => {
+  try {
+    const creditNote = updateCreditNoteStatus(parseInt(req.params.id), req.body.status);
+    res.json({ ok: true, credit_note: creditNote });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/credit-notes/:id', requireRole('manager'), (req, res) => {
+  deleteCreditNote(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Debit Notes
+app.get('/api/debit-notes', loginRequired, (req, res) => {
+  res.json({ ok: true, debit_notes: listDebitNotes() });
+});
+
+app.get('/api/debit-notes/:id', loginRequired, (req, res) => {
+  const debitNote = getDebitNote(parseInt(req.params.id));
+  if (!debitNote) {
+    return res.status(404).json(jsonError('Debit note not found'));
+  }
+  res.json({ ok: true, debit_note: debitNote });
+});
+
+app.post('/api/debit-notes', requireRole('manager'), (req, res) => {
+  try {
+    const items = req.body.items || [];
+    const debitNote = createDebitNote(items, {
+      partyId: req.body.party_id,
+      partyName: req.body.party_name,
+      invoiceId: req.body.invoice_id,
+      reason: req.body.reason,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, debit_note: debitNote });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/debit-notes/:id/status', requireRole('manager'), (req, res) => {
+  try {
+    const debitNote = updateDebitNoteStatus(parseInt(req.params.id), req.body.status);
+    res.json({ ok: true, debit_note: debitNote });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/debit-notes/:id', requireRole('manager'), (req, res) => {
+  deleteDebitNote(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Purchase Orders
+app.get('/api/purchase-orders', loginRequired, (req, res) => {
+  res.json({ ok: true, purchase_orders: listPurchaseOrders() });
+});
+
+app.get('/api/purchase-orders/:id', loginRequired, (req, res) => {
+  const purchaseOrder = getPurchaseOrder(parseInt(req.params.id));
+  if (!purchaseOrder) {
+    return res.status(404).json(jsonError('Purchase order not found'));
+  }
+  res.json({ ok: true, purchase_order: purchaseOrder });
+});
+
+app.post('/api/purchase-orders', requireRole('manager'), (req, res) => {
+  try {
+    const items = req.body.items || [];
+    const purchaseOrder = createPurchaseOrder(items, {
+      partyId: req.body.party_id,
+      partyName: req.body.party_name,
+      expectedDate: req.body.expected_date,
+      notes: req.body.notes,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, purchase_order: purchaseOrder });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/purchase-orders/:id/status', requireRole('manager'), (req, res) => {
+  try {
+    const purchaseOrder = updatePurchaseOrderStatus(parseInt(req.params.id), req.body.status);
+    res.json({ ok: true, purchase_order: purchaseOrder });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/purchase-orders/:id/convert', requireRole('manager'), (req, res) => {
+  try {
+    const result = convertPurchaseOrderToPurchase(parseInt(req.params.id), {
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/purchase-orders/:id', requireRole('manager'), (req, res) => {
+  deletePurchaseOrder(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// Accounts
+app.get('/api/accounts', loginRequired, (req, res) => {
+  res.json({ ok: true, accounts: listAccounts() });
+});
+
+app.get('/api/accounts/default', loginRequired, (req, res) => {
+  const account = getDefaultAccount();
+  if (!account) {
+    return res.status(404).json(jsonError('Default account not found'));
+  }
+  res.json({ ok: true, account: account });
+});
+
+app.get('/api/accounts/:id', loginRequired, (req, res) => {
+  const account = getAccount(parseInt(req.params.id));
+  if (!account) {
+    return res.status(404).json(jsonError('Account not found'));
+  }
+  res.json({ ok: true, account: account });
+});
+
+app.post('/api/accounts', requireRole('admin'), (req, res) => {
+  try {
+    const account = saveAccount(req.body);
+    res.json({ ok: true, account: account });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.put('/api/accounts/:id', requireRole('admin'), (req, res) => {
+  try {
+    const account = saveAccount(req.body, parseInt(req.params.id));
+    res.json({ ok: true, account: account });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.delete('/api/accounts/:id', requireRole('admin'), (req, res) => {
+  try {
+    deleteAccount(parseInt(req.params.id));
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/accounts/:id/transactions', loginRequired, (req, res) => {
+  const transactions = listAccountTransactions(parseInt(req.params.id));
+  res.json({ ok: true, transactions: transactions });
+});
+
+app.post('/api/accounts/:id/transactions', requireRole('manager'), (req, res) => {
+  try {
+    const transaction = createTransaction({
+      accountId: parseInt(req.params.id),
+      transactionType: req.body.transaction_type,
+      amount: req.body.amount,
+      referenceType: req.body.reference_type || '',
+      referenceId: req.body.reference_id || 0,
+      partyId: req.body.party_id,
+      notes: req.body.notes
+    });
+    res.json({ ok: true, transaction: transaction });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json(jsonError('Not found'));
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json(jsonError('Internal server error'));
+});
+
+// Initialize and start server
+async function startServer() {
+  try {
+    await initDatabase();
+    seedItemsFromJson();
+    
+    app.listen(PORT, () => {
+      console.log(`Mart POS server running on http://localhost:${PORT}`);
+      console.log('Default login: admin / admin');
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
