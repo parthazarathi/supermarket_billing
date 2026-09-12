@@ -972,7 +972,7 @@ function itemForm(item = {}) {
       <input name="hsn" placeholder="HSN" value="${esc(item.hsn || "")}" />
       <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
       <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
-      <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 18}" />
+      <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 0}" />
       <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
       <select name="unit">${unitOpts}</select>
       <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
