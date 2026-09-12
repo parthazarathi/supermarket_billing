@@ -834,6 +834,14 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
   border-radius: var(--radius-md);
   font-size: 13px;
 }
+#purTable input[type="number"]::-webkit-outer-spin-button,
+#purTable input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+#purTable input[type="number"] {
+  -moz-appearance: textfield;
+}
 @media (max-width: 900px) {
   .pur-pos {
     grid-template-columns: 1fr;
