@@ -966,16 +966,36 @@ function itemForm(item = {}) {
   openModal(`
     <h3>${item.id ? "Edit item" : "New item"}</h3>
     <form id="itemForm" class="form-grid">
-      <input name="code" placeholder="Barcode / code" value="${esc(item.code || "")}" required />
-      <input name="name" placeholder="Name" value="${esc(item.name || "")}" required />
-      <select name="category">${catOpts}</select>
-      <input name="hsn" placeholder="HSN" value="${esc(item.hsn || "")}" />
-      <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
-      <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
-      <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 0}" />
-      <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
-      <select name="unit">${unitOpts}</select>
-      <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
+      <label class="full">Barcode / Code
+        <input name="code" placeholder="Barcode / code" value="${esc(item.code || "")}" required />
+      </label>
+      <label class="full">Name
+        <input name="name" placeholder="Name" value="${esc(item.name || "")}" required />
+      </label>
+      <label>Category
+        <select name="category">${catOpts}</select>
+      </label>
+      <label>HSN
+        <input name="hsn" placeholder="HSN" value="${esc(item.hsn || "")}" />
+      </label>
+      <label>Sale price
+        <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
+      </label>
+      <label>Purchase price
+        <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
+      </label>
+      <label>GST %
+        <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 0}" />
+      </label>
+      <label>Stock
+        <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
+      </label>
+      <label>Unit
+        <select name="unit">${unitOpts}</select>
+      </label>
+      <label>Low stock
+        <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
+      </label>
     </form>`, "itemForm");
   document.getElementById("itemForm").addEventListener("submit", async (e) => {
     e.preventDefault();
