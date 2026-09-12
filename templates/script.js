@@ -1257,8 +1257,8 @@ function renderNewPurchase(view) {
             </thead>
             <tbody id="purLineBody"></tbody>
           </table>
-          <div class="form-error" id="purTableError" style="display:none"></div>
         </div>
+        <div class="form-error" id="purTableError" style="display:none; margin-top:8px"></div>
       </div>
       <div class="pur-pos-right">
         <form id="purForm" class="order-summary">
@@ -1351,12 +1351,15 @@ function renderNewPurchase(view) {
       tax += lineTax;
       l.line_total = Math.round((taxable + lineTax) * 100) / 100;
       let err = "";
-      if (l.quantity < 0) err = "Quantity cannot be negative";
-      else if (l.price < 0) err = "Purchase price cannot be negative";
-      else if (l.mrp <= 0) err = "MRP is required and must be greater than 0";
-      else if (l.mrp <= l.price) err = "MRP must be higher than purchase price";
-      else if (l.sale_price !== null && l.sale_price <= 0) err = "Sale price must be greater than 0";
-      else if (l.sale_price !== null && l.sale_price <= l.price) err = "Sale price must be higher than purchase price";
+      const mrp = Number(l.mrp);
+      const price = Number(l.price);
+      const qty = Number(l.quantity);
+      if (isNaN(qty) || qty < 0) err = "Quantity cannot be negative";
+      else if (isNaN(price) || price < 0) err = "Purchase price cannot be negative";
+      else if (isNaN(mrp) || mrp <= 0) err = "MRP is required and must be greater than 0";
+      else if (mrp <= price) err = "MRP must be higher than purchase price";
+      else if (l.sale_price !== null && !isNaN(Number(l.sale_price)) && l.sale_price <= 0) err = "Sale price must be greater than 0";
+      else if (l.sale_price !== null && !isNaN(Number(l.sale_price)) && l.sale_price <= price) err = "Sale price must be higher than purchase price";
       l._error = err;
     }
     const total = Math.round((subtotal + tax) * 100) / 100;

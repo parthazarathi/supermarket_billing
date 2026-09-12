@@ -669,6 +669,9 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .pur-row-error {
   background: #fee2e2 !important;
 }
+.pur-row-error td {
+  background: #fee2e2 !important;
+}
 .pur-row-error input {
   border-color: var(--danger) !important;
   background: #fff5f5;
