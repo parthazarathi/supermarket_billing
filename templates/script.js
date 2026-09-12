@@ -951,18 +951,30 @@ function renderItems(view) {
 }
 
 function itemForm(item = {}) {
+  const cats = new Set(state.categories || []);
+  if (item.category) cats.add(item.category);
+  cats.add("General");
+  const catOpts = Array.from(cats)
+    .map((c) => `<option value="${esc(c)}" ${(item.category || "General") === c ? "selected" : ""}>${esc(c)}</option>`)
+    .join("");
+  const unitList = ["pcs", "kg", "g", "ltr", "ml", "box", "pack", "dozen", "set", "meter", "nos"];
+  const units = new Set(unitList);
+  if (item.unit) units.add(item.unit);
+  const unitOpts = Array.from(units)
+    .map((u) => `<option value="${esc(u)}" ${(item.unit || "pcs") === u ? "selected" : ""}>${esc(u)}</option>`)
+    .join("");
   openModal(`
     <h3>${item.id ? "Edit item" : "New item"}</h3>
     <form id="itemForm" class="form-grid">
       <input name="code" placeholder="Barcode / code" value="${esc(item.code || "")}" required />
       <input name="name" placeholder="Name" value="${esc(item.name || "")}" required />
-      <input name="category" placeholder="Category" value="${esc(item.category || "")}" />
+      <select name="category">${catOpts}</select>
       <input name="hsn" placeholder="HSN" value="${esc(item.hsn || "")}" />
       <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
       <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
       <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 18}" />
       <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
-      <input name="unit" placeholder="Unit" value="${esc(item.unit || "pcs")}" />
+      <select name="unit">${unitOpts}</select>
       <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
     </form>`, "itemForm");
   document.getElementById("itemForm").addEventListener("submit", async (e) => {
