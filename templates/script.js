@@ -985,7 +985,7 @@ function itemForm(item = {}) {
         <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
       </label>
       <label>GST %
-        <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? 0}" />
+        <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
       </label>
       <label>Stock
         <input name="stock" type="number" step="0.01" placeholder="Stock" value="${item.stock ?? 0}" />
@@ -1318,19 +1318,34 @@ function renderSettings(view) {
     <div class="pos">
       <form class="card form-grid" id="setForm">
         <h3 class="full">Shop</h3>
-        <input name="shop_name" placeholder="Shop name" value="${esc(s.shop_name || "")}" />
-        <input name="gstin" placeholder="GSTIN" value="${esc(s.gstin || "")}" />
-        <input name="upi_vpa" placeholder="UPI ID" value="${esc(s.upi_vpa || "")}" />
-        <input name="upi_name" placeholder="UPI name" value="${esc(s.upi_name || "")}" />
-        <select name="gst_type">
-          <option value="intra" ${s.gst_type !== "inter" ? "selected" : ""}>Intra-state (CGST+SGST)</option>
-          <option value="inter" ${s.gst_type === "inter" ? "selected" : ""}>Inter-state (IGST)</option>
-        </select>
-        <select name="drive_auto_backup">
-          <option value="0" ${s.drive_auto_backup !== "1" ? "selected" : ""}>Manual Drive backup</option>
-          <option value="1" ${s.drive_auto_backup === "1" ? "selected" : ""}>Auto backup after each sale</option>
-        </select>
-        <div class="full"><button class="btn">Save settings</button></div>
+        <label>Shop name
+          <input name="shop_name" placeholder="Shop name" value="${esc(s.shop_name || "")}" />
+        </label>
+        <label>GSTIN
+          <input name="gstin" placeholder="GSTIN" value="${esc(s.gstin || "")}" />
+        </label>
+        <label>UPI ID
+          <input name="upi_vpa" placeholder="UPI ID" value="${esc(s.upi_vpa || "")}" />
+        </label>
+        <label>UPI name
+          <input name="upi_name" placeholder="UPI name" value="${esc(s.upi_name || "")}" />
+        </label>
+        <label>Default GST %
+          <input name="default_gst" type="number" step="0.01" placeholder="Default GST %" value="${esc(s.default_gst || "")}" />
+        </label>
+        <label>GST type
+          <select name="gst_type">
+            <option value="intra" ${s.gst_type !== "inter" ? "selected" : ""}>Intra-state (CGST+SGST)</option>
+            <option value="inter" ${s.gst_type === "inter" ? "selected" : ""}>Inter-state (IGST)</option>
+          </select>
+        </label>
+        <label>Drive backup
+          <select name="drive_auto_backup">
+            <option value="0" ${s.drive_auto_backup !== "1" ? "selected" : ""}>Manual Drive backup</option>
+            <option value="1" ${s.drive_auto_backup === "1" ? "selected" : ""}>Auto backup after each sale</option>
+          </select>
+        </label>
+        <div class="full"><button class="btn" type="submit">Save settings</button></div>
       </form>
       <div class="card">
         <h3>Google Drive backup</h3>
