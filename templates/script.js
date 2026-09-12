@@ -1198,14 +1198,22 @@ function purchaseForm() {
   openModal(`
     <h3>New purchase</h3>
     <form id="purForm" class="form-grid">
-      <select name="party_id" class="full">
-        <option value="">No supplier</option>
-        ${suppliers.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
-      </select>
-      <select id="purCode">${itemOpts}</select>
-      <input id="purQty" type="number" step="0.01" value="1" />
-      <input id="purPrice" type="number" step="0.01" placeholder="Cost price" />
-      <button type="button" class="btn ghost" id="addPurLine">Add line</button>
+      <label class="full">Supplier
+        <select name="party_id">
+          <option value="">No supplier</option>
+          ${suppliers.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label>Item
+        <select id="purCode">${itemOpts}</select>
+      </label>
+      <label>Quantity
+        <input id="purQty" type="number" step="0.01" value="1" />
+      </label>
+      <label>Cost price
+        <input id="purPrice" type="number" step="0.01" placeholder="Cost price" />
+      </label>
+      <div class="full"><button type="button" class="btn ghost" id="addPurLine">Add line</button></div>
       <div class="full" id="purLines"></div>
     </form>`, "purForm");
   const lines = [];
