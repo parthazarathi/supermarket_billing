@@ -1253,22 +1253,28 @@ function renderNewPurchase(view) {
             <div id="purSugg" class="pur-suggestions" style="display:none"></div>
           </div>
         </div>
-        <div class="table-wrap" style="flex:1;min-height:180px">
-          <table id="purTable">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th style="width:70px">Qty</th>
-                <th style="width:90px">Purchase</th>
-                <th style="width:90px">MRP</th>
-                <th style="width:90px">Sale</th>
-                <th style="width:60px">GST%</th>
-                <th style="width:90px">Total</th>
-                <th style="width:40px"></th>
-              </tr>
-            </thead>
-            <tbody id="purLineBody"></tbody>
-          </table>
+        <div class="items-table-section">
+          <div class="section-header">
+            <h3>Purchase Items</h3>
+            <span class="item-count" id="purItemCount">0 items</span>
+          </div>
+          <div class="items-table-container" style="min-height:180px">
+            <table id="purTable" class="items-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th style="width:70px">Qty</th>
+                  <th style="width:90px">Purchase</th>
+                  <th style="width:90px">MRP</th>
+                  <th style="width:90px">Sale</th>
+                  <th style="width:60px">GST%</th>
+                  <th style="width:90px">Total</th>
+                  <th style="width:40px"></th>
+                </tr>
+              </thead>
+              <tbody id="purLineBody"></tbody>
+            </table>
+          </div>
         </div>
         <div class="form-error" id="purTableError" style="display:none; margin-top:8px"></div>
       </div>
@@ -1401,6 +1407,8 @@ function renderNewPurchase(view) {
       .join("");
     const errMsg = lines.map((l) => l._error).filter(Boolean)[0] || "";
     const errEl = document.getElementById("purTableError");
+    const countEl = document.getElementById("purItemCount");
+    if (countEl) countEl.textContent = `${lines.length} items`;
     if (errMsg) {
       errEl.textContent = errMsg;
       errEl.style.display = "block";
