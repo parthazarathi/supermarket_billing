@@ -409,11 +409,11 @@ function renderPos(view) {
                       <td>
                         <div class="qty-control-inline">
                           <button class="qty-btn sm minus" data-qty-minus="${esc(item.code)}">−</button>
-                          <input type="number" min="0.01" step="0.01" value="${item.quantity}" data-qty="${esc(item.code)}" aria-label="Quantity for ${esc(item.name)}" class="qty-input sm" />
+                          <input type="number" min="1" step="1" value="${item.quantity}" data-qty="${esc(item.code)}" aria-label="Quantity for ${esc(item.name)}" class="qty-input sm" />
                           <button class="qty-btn sm plus" data-qty-plus="${esc(item.code)}">+</button>
                         </div>
                       </td>
-                      <td><input type="number" min="0" step="0.01" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
+                      <td><input type="number" min="0" step="1" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
                       <td>₹ ${money(item.line_total)}</td>
                     </tr>`
                       )
@@ -460,7 +460,7 @@ function renderPos(view) {
               </div>
               <div class="total-row discount-row">
                 <span>Discount</span>
-                <span><input id="billDiscount" type="number" min="0" step="0.01" value="${money(c.discount)}" class="discount-input" aria-label="Bill discount amount" /></span>
+                <span><input id="billDiscount" type="number" min="0" step="1" value="${money(c.discount)}" class="discount-input" aria-label="Bill discount amount" /></span>
               </div>
               <div class="total-row">
                 <span>CGST</span>
@@ -490,7 +490,7 @@ function renderPos(view) {
               <div class="payment-details">
                 <div class="payment-row">
                   <label for="paidInput">Amount Received</label>
-                  <input id="paidInput" type="number" min="0" step="0.01" value="${state.paid || money(c.total)}" aria-label="Amount received from customer" />
+                  <input id="paidInput" type="number" min="0" step="1" value="${state.paid || money(c.total)}" aria-label="Amount received from customer" />
                 </div>
                 <div class="payment-row">
                   <label>Change to Return</label>
@@ -1013,25 +1013,25 @@ function itemForm(item = {}) {
         <input name="hsn" placeholder="HSN" value="${esc(item.hsn || "")}" />
       </label>
       <label>Sale price
-        <input name="sale_price" type="number" step="0.01" placeholder="Sale price" value="${item.sale_price ?? ""}" />
+        <input name="sale_price" type="number" step="1" placeholder="Sale price" value="${item.sale_price ?? ""}" />
       </label>
       <label>Purchase price
-        <input name="purchase_price" type="number" step="0.01" min="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" required />
+        <input name="purchase_price" type="number" step="1" min="1" placeholder="Purchase price" value="${item.purchase_price ?? ""}" required />
       </label>
       <label>MRP
-        <input name="mrp" type="number" step="0.01" min="0.01" placeholder="MRP" value="${item.mrp || item.sale_price || ""}" required />
+        <input name="mrp" type="number" step="1" min="1" placeholder="MRP" value="${item.mrp || item.sale_price || ""}" required />
       </label>
       <label>GST %
-        <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
+        <input name="gst_percent" type="number" step="1" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
       </label>
       <label>Stock
-        <input name="stock" type="number" step="0.01" min="0.01" placeholder="Stock" value="${item.stock ?? 0}" required />
+        <input name="stock" type="number" step="1" min="1" placeholder="Stock" value="${item.stock ?? 0}" required />
       </label>
       <label>Unit
         <select name="unit">${unitOpts}</select>
       </label>
       <label>Low stock
-        <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
+        <input name="low_stock" type="number" step="1" placeholder="Low stock" value="${item.low_stock ?? 5}" />
       </label>
       <div class="full form-error" id="itemFormError"></div>
     </form>`, "itemForm");
@@ -1146,7 +1146,7 @@ function partyForm(party = {}) {
         <input name="gstin" placeholder="GSTIN" value="${esc(party.gstin || "")}" />
       </label>
       <label>Opening balance
-        <input name="opening_balance" type="number" step="0.01" placeholder="Opening balance" value="${party.opening_balance ?? 0}" />
+        <input name="opening_balance" type="number" step="1" placeholder="Opening balance" value="${party.opening_balance ?? 0}" />
       </label>
     </form>`, "partyForm");
   const typeSelect = document.getElementById("partyType");
@@ -1210,7 +1210,7 @@ async function openReturn(id) {
         .map(
           (it) => `<label class="row" style="display:flex;gap:8px;margin:8px 0;align-items:center">
             <span style="flex:1">${esc(it.name)}</span>
-            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="0.01" value="0" style="width:90px" />
+            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" style="width:90px" />
           </label>`
         )
         .join("")}
@@ -1329,7 +1329,7 @@ function renderNewPurchase(view) {
           <div class="summary-row"><span>Tax</span><span id="purTax">₹ 0.00</span></div>
           <div class="summary-row total"><span>Total</span><span id="purTotal">₹ 0.00</span></div>
           <label class="full">Paid
-            <input name="paid" id="purPaid" type="number" step="0.01" value="0" />
+            <input name="paid" id="purPaid" type="number" step="1" value="0" />
           </label>
           <div class="summary-row"><span>Balance</span><span id="purBalance">₹ 0.00</span></div>
           <div class="full" style="margin-top:12px">
@@ -1432,11 +1432,11 @@ function renderNewPurchase(view) {
         (l, i) => `
         <tr class="${l._error ? "pur-row-error" : ""}" title="${l._error ? esc(l._error) : ""}">
           <td>${esc(l.name)}</td>
-          <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
-          <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
-          <td><input type="number" step="0.01" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
-          <td><input type="number" step="0.01" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
-          <td><input type="number" step="0.01" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
+          <td><input type="number" step="1" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
+          <td><input type="number" step="1" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
+          <td><input type="number" step="1" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
+          <td><input type="number" step="1" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
+          <td><input type="number" step="1" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
           <td>₹ ${money(l.line_total)}</td>
           <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
         </tr>
@@ -1514,7 +1514,7 @@ function renderExpenses(view) {
   view.innerHTML = `
     <form class="toolbar" id="expForm">
       <input name="category" placeholder="Category (rent, power...)" />
-      <input name="amount" type="number" step="0.01" placeholder="Amount" />
+      <input name="amount" type="number" step="1" placeholder="Amount" />
       <input name="note" class="grow" placeholder="Note" />
       <button class="btn">Add expense</button>
     </form>
@@ -1598,7 +1598,7 @@ function renderSettings(view) {
           <input name="upi_name" placeholder="UPI name" value="${esc(s.upi_name || "")}" />
         </label>
         <label>Default GST %
-          <input name="default_gst" type="number" step="0.01" placeholder="Default GST %" value="${esc(s.default_gst || "")}" />
+          <input name="default_gst" type="number" step="1" placeholder="Default GST %" value="${esc(s.default_gst || "")}" />
         </label>
         <label>GST type
           <select name="gst_type">
