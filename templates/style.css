@@ -724,26 +724,40 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 }
 .pur-pos {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 340px;
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
+  height: calc(100vh - 160px);
+  overflow: hidden;
 }
 .pur-pos-left,
 .pur-pos-right {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+}
+.pur-pos-left .table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.pur-pos-right .order-summary {
+  overflow-y: auto;
 }
 .pur-search {
   display: flex;
   gap: 8px;
   align-items: stretch;
+  flex-wrap: wrap;
 }
 .pur-search input:first-child {
   flex: 1;
+  min-width: 160px;
 }
 .pur-search input {
-  min-width: 0;
+  min-width: 80px;
+  flex: 0 1 120px;
 }
 .pur-search .btn {
   white-space: nowrap;
@@ -758,6 +772,11 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 @media (max-width: 900px) {
   .pur-pos {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+  }
+  .pur-pos-left .table-wrap {
+    max-height: 50vh;
   }
   .pur-pos-right {
     order: -1;
