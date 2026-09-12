@@ -1197,6 +1197,34 @@ function renderPurchases(view) {
   document.getElementById("newPurchase").addEventListener("click", () => switchView("new-purchase"));
 }
 
+function makeResizable(table) {
+  table.style.tableLayout = "fixed";
+  const ths = table.querySelectorAll("th");
+  ths.forEach((th) => {
+    if (th.querySelector(".resizer")) return;
+    th.style.position = "relative";
+    const resizer = document.createElement("div");
+    resizer.className = "resizer";
+    resizer.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = th.offsetWidth;
+      const onMove = (e2) => {
+        const w = startWidth + (e2.clientX - startX);
+        th.style.width = Math.max(40, w) + "px";
+        table.style.tableLayout = "fixed";
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+    th.appendChild(resizer);
+  });
+}
+
 function renderNewPurchase(view) {
   const suppliers = state.parties.filter((p) => p.type === "supplier");
   view.innerHTML = `
@@ -1214,7 +1242,7 @@ function renderNewPurchase(view) {
           </div>
         </div>
         <div class="table-wrap" style="flex:1;min-height:180px">
-          <table>
+          <table id="purTable">
             <thead>
               <tr>
                 <th>Item</th>
@@ -1253,6 +1281,7 @@ function renderNewPurchase(view) {
         </form>
       </div>
     </div>`;
+  makeResizable(document.getElementById("purTable"));
   const lines = [];
   const searchInput = document.getElementById("purSearch");
   const suggBox = document.getElementById("purSugg");

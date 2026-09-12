@@ -803,6 +803,20 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
   font-size: 12px;
   margin-left: 6px;
 }
+.resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+}
+.resizer:hover,
+.resizer.resizing {
+  background: var(--primary);
+}
 #purLineBody input {
   width: 100%;
   padding: 6px 8px;
