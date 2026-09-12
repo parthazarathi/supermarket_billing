@@ -996,6 +996,7 @@ function itemForm(item = {}) {
       <label>Low stock
         <input name="low_stock" type="number" step="0.01" placeholder="Low stock" value="${item.low_stock ?? 5}" />
       </label>
+      <div class="full form-error" id="itemFormError"></div>
     </form>`, "itemForm");
   document.getElementById("itemForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1006,7 +1007,8 @@ function itemForm(item = {}) {
       closeModal();
       await loadItems();
     } catch (err) {
-      setStatus(err.message, "error");
+      const errEl = document.getElementById("itemFormError");
+      if (errEl) errEl.textContent = err.message;
     }
   });
 }

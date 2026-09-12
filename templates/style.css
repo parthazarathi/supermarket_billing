@@ -658,6 +658,14 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .form-grid .full { 
   grid-column: 1 / -1; 
 }
+.form-error {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  background: #fee2e2;
+  border-radius: var(--radius-md);
+}
 .muted { 
   color: var(--text-tertiary); 
   font-size: 14px;
