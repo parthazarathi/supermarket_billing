@@ -869,11 +869,15 @@ async function addCode(code) {
     }
     const sale = Number(item.sale_price) || 0;
     const purchase = Number(item.purchase_price) || 0;
+    const mrp = Number(item.mrp) || sale;
     if (sale <= 0) {
       return setStatus(`Sale price must be greater than 0 for ${esc(item.name)}`, "error");
     }
     if (sale <= purchase) {
       return setStatus(`Sale price must be higher than purchase price for ${esc(item.name)}`, "error");
+    }
+    if (mrp > 0 && sale > mrp) {
+      return setStatus(`Sale price cannot be greater than MRP for ${esc(item.name)}`, "error");
     }
     applyCart(await api("/add_to_cart", { method: "POST", body: { code, quantity: 1 } }));
     setStatus(`Added ${esc(item.name)}`, "ok");
@@ -933,13 +937,16 @@ function renderItems(view) {
     }
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Price</th><th>GST</th><th>Stock</th>${can("manager") ? "<th></th>" : ""}</tr></thead>
+        <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Purchase</th><th>MRP</th><th>Sale</th><th>GST</th><th>Stock</th>${can("manager") ? "<th></th>" : ""}</tr></thead>
         <tbody>
           ${state.items
             .map(
               (i) => `<tr>
                 <td>${esc(i.code)}</td><td>${esc(i.name)}</td><td>${esc(i.category)}</td>
-                <td>₹ ${money(i.sale_price)}</td><td>${i.gst_percent}%</td>
+                <td>₹ ${money(i.purchase_price)}</td>
+                <td>₹ ${money(i.mrp || i.sale_price)}</td>
+                <td>₹ ${money(i.sale_price)}</td>
+                <td>${i.gst_percent}%</td>
                 <td class="${Number(i.stock) <= Number(i.low_stock) ? "low" : ""}">${money(i.stock)}</td>
                 ${
                   can("manager")
@@ -999,6 +1006,9 @@ function itemForm(item = {}) {
       </label>
       <label>Purchase price
         <input name="purchase_price" type="number" step="0.01" placeholder="Purchase price" value="${item.purchase_price ?? ""}" />
+      </label>
+      <label>MRP
+        <input name="mrp" type="number" step="0.01" placeholder="MRP" value="${item.mrp ?? item.sale_price ?? ""}" />
       </label>
       <label>GST %
         <input name="gst_percent" type="number" step="0.01" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
@@ -1332,7 +1342,7 @@ function renderNewPurchase(view) {
           const item = state.items.find((i) => i.code === code);
           if (item) {
             const purchasePrice = Number(item.purchase_price || 0);
-            const mrp = Number(item.sale_price || 0);
+            const mrp = Number(item.mrp || item.sale_price || 0);
             const qty = 1;
             const gstPercent = 0;
             const taxable = qty * purchasePrice;

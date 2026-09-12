@@ -365,11 +365,15 @@ app.post('/add_to_cart', loginRequired, (req, res) => {
 
   const sale = parseFloat(product.sale_price) || 0;
   const purchase = parseFloat(product.purchase_price) || 0;
+  const mrp = parseFloat(product.mrp) || 0;
   if (sale <= 0) {
     return res.status(400).json(jsonError(`Sale price must be greater than 0 for ${product.name}`));
   }
   if (sale <= purchase) {
     return res.status(400).json(jsonError(`Sale price must be higher than purchase price for ${product.name}`));
+  }
+  if (mrp > 0 && sale > mrp) {
+    return res.status(400).json(jsonError(`Sale price cannot be greater than MRP for ${product.name}`));
   }
 
   const cart = getCart(req);
