@@ -1001,9 +1001,13 @@ function itemForm(item = {}) {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
     const url = item.id ? `/api/items/${item.id}` : "/api/items";
-    await api(url, { method: item.id ? "PUT" : "POST", body: fd });
-    closeModal();
-    await loadItems();
+    try {
+      await api(url, { method: item.id ? "PUT" : "POST", body: fd });
+      closeModal();
+      await loadItems();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
 }
 
