@@ -1257,6 +1257,7 @@ function renderNewPurchase(view) {
             </thead>
             <tbody id="purLineBody"></tbody>
           </table>
+          <div class="form-error" id="purTableError" style="display:none"></div>
         </div>
       </div>
       <div class="pur-pos-right">
@@ -1349,6 +1350,14 @@ function renderNewPurchase(view) {
       subtotal += taxable;
       tax += lineTax;
       l.line_total = Math.round((taxable + lineTax) * 100) / 100;
+      let err = "";
+      if (l.quantity < 0) err = "Quantity cannot be negative";
+      else if (l.price < 0) err = "Purchase price cannot be negative";
+      else if (l.mrp <= 0) err = "MRP is required and must be greater than 0";
+      else if (l.mrp <= l.price) err = "MRP must be higher than purchase price";
+      else if (l.sale_price !== null && l.sale_price <= 0) err = "Sale price must be greater than 0";
+      else if (l.sale_price !== null && l.sale_price <= l.price) err = "Sale price must be higher than purchase price";
+      l._error = err;
     }
     const total = Math.round((subtotal + tax) * 100) / 100;
     const paid = Math.round((parseFloat(document.getElementById("purPaid").value) || 0) * 100) / 100;
@@ -1360,7 +1369,7 @@ function renderNewPurchase(view) {
     tbody.innerHTML = lines
       .map(
         (l, i) => `
-        <tr>
+        <tr class="${l._error ? "pur-row-error" : ""}" title="${l._error ? esc(l._error) : ""}">
           <td>${esc(l.name)}</td>
           <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
           <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
@@ -1373,34 +1382,34 @@ function renderNewPurchase(view) {
       `
       )
       .join("");
+    const errMsg = lines.map((l) => l._error).filter(Boolean)[0] || "";
+    const errEl = document.getElementById("purTableError");
+    if (errMsg) {
+      errEl.textContent = errMsg;
+      errEl.style.display = "block";
+    } else {
+      errEl.textContent = "";
+      errEl.style.display = "none";
+    }
     tbody.querySelectorAll("input[data-i]").forEach((el) =>
       el.addEventListener("change", (e) => {
         const li = Number(e.target.dataset.i);
         const field = e.target.dataset.f;
         const l = lines[li];
         const raw = e.target.value.trim();
-        let error = "";
         if (field === "sale_price") {
           if (raw === "") {
             l.sale_price = null;
           } else {
-            const n = Number(raw);
-            if (isNaN(n) || n <= 0) error = "Sale price must be greater than 0";
-            else if (n <= l.price) error = `Sale price for ${esc(l.name)} must be higher than purchase price`;
-            else l.sale_price = n;
+            l.sale_price = Number(raw) || 0;
           }
         } else if (field === "mrp") {
-          const n = Number(raw) || 0;
-          if (n < 0) error = "MRP cannot be negative";
-          else l.mrp = n;
+          l.mrp = Number(raw) || 0;
         } else if (field === "price" || field === "quantity") {
-          const n = Number(raw) || 0;
-          if (n < 0) error = `${field === "price" ? "Purchase price" : "Quantity"} cannot be negative`;
-          else l[field] = n;
+          l[field] = Number(raw) || 0;
         } else {
           l[field] = Number(raw) || 0;
         }
-        if (error) setStatus(error, "error");
         draw();
       })
     );
@@ -1414,6 +1423,11 @@ function renderNewPurchase(view) {
   document.getElementById("purPaid").addEventListener("input", draw);
   document.getElementById("purForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    draw();
+    if (lines.some((l) => l._error)) {
+      setStatus("Please fix the highlighted items before saving", "error");
+      return;
+    }
     const fd = new FormData(e.target);
     try {
       await api("/api/purchases", {

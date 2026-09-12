@@ -666,6 +666,13 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
   background: #fee2e2;
   border-radius: var(--radius-md);
 }
+.pur-row-error {
+  background: #fee2e2 !important;
+}
+.pur-row-error input {
+  border-color: var(--danger) !important;
+  background: #fff5f5;
+}
 .muted { 
   color: var(--text-tertiary); 
   font-size: 14px;
