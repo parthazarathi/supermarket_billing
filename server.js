@@ -648,6 +648,19 @@ app.get('/api/purchases', requireRole('manager'), (req, res) => {
   res.json({ ok: true, purchases: listPurchases() });
 });
 
+app.post('/api/purchases', requireRole('manager'), (req, res) => {
+  try {
+    const purchase = completePurchase(req.body.items || [], {
+      partyId: req.body.party_id || null,
+      paid: req.body.paid,
+      userId: currentUser(req).id
+    });
+    res.json({ ok: true, purchase: purchase });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
 app.get('/api/purchases/:id', requireRole('manager'), (req, res) => {
   const purchase = getPurchase(parseInt(req.params.id));
   if (!purchase) {

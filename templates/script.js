@@ -1210,8 +1210,11 @@ function purchaseForm() {
       <label>Quantity
         <input id="purQty" type="number" step="0.01" value="1" />
       </label>
-      <label>Cost price
-        <input id="purPrice" type="number" step="0.01" placeholder="Cost price" />
+      <label>Purchase price
+        <input id="purPurPrice" type="number" step="0.01" placeholder="Purchase price" />
+      </label>
+      <label>Sale price
+        <input id="purSalePrice" type="number" step="0.01" placeholder="Sale price" />
       </label>
       <div class="full"><button type="button" class="btn ghost" id="addPurLine">Add line</button></div>
       <div class="full" id="purLines"></div>
@@ -1219,7 +1222,7 @@ function purchaseForm() {
   const lines = [];
   const draw = () => {
     document.getElementById("purLines").innerHTML = lines
-      .map((l, i) => `<div>${esc(l.code)} × ${l.quantity} @ ₹ ${money(l.price)} <button type="button" data-i="${i}">x</button></div>`)
+      .map((l, i) => `<div>${esc(l.code)} × ${l.quantity} @ purchase ₹ ${money(l.price)}, sale ₹ ${money(l.sale_price || 0)} <button type="button" data-i="${i}">x</button></div>`)
       .join("");
     document.querySelectorAll("#purLines [data-i]").forEach((b) =>
       b.addEventListener("click", () => {
@@ -1231,10 +1234,16 @@ function purchaseForm() {
   document.getElementById("addPurLine").addEventListener("click", () => {
     const code = document.getElementById("purCode").value;
     const item = state.items.find((i) => i.code === code);
+    const purchasePrice = Number(document.getElementById("purPurPrice").value || item?.purchase_price || 0);
+    const salePrice = Number(document.getElementById("purSalePrice").value || item?.sale_price || 0);
+    if (salePrice <= purchasePrice && salePrice > 0) {
+      return setStatus("Sale price must be higher than purchase price", "error");
+    }
     lines.push({
       code,
       quantity: Number(document.getElementById("purQty").value || 1),
-      price: Number(document.getElementById("purPrice").value || item?.purchase_price || 0),
+      price: purchasePrice,
+      sale_price: salePrice,
     });
     draw();
   });
