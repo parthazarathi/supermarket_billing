@@ -1193,70 +1193,150 @@ function renderPurchases(view) {
 }
 
 function purchaseForm() {
-  const itemOpts = state.items.map((i) => `<option value="${esc(i.code)}">${esc(i.name)}</option>`).join("");
   const suppliers = state.parties.filter((p) => p.type === "supplier");
+  const datalist = state.items.map((i) => `<option value="${esc(i.code)}" label="${esc(i.name)}"></option>`).join("");
   openModal(`
-    <h3>New purchase</h3>
-    <form id="purForm" class="form-grid">
-      <label class="full">Supplier
-        <select name="party_id">
-          <option value="">No supplier</option>
-          ${suppliers.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
-        </select>
-      </label>
-      <label>Item
-        <select id="purCode">${itemOpts}</select>
-      </label>
-      <label>Quantity
-        <input id="purQty" type="number" step="0.01" value="1" />
-      </label>
-      <label>Purchase price
-        <input id="purPurPrice" type="number" step="0.01" placeholder="Purchase price" />
-      </label>
-      <label>Sale price
-        <input id="purSalePrice" type="number" step="0.01" placeholder="Sale price" />
-      </label>
-      <div class="full"><button type="button" class="btn ghost" id="addPurLine">Add line</button></div>
-      <div class="full" id="purLines"></div>
-    </form>`, "purForm");
+    <h3 class="full">New purchase</h3>
+    <div class="pur-pos">
+      <div class="pur-pos-left">
+        <div class="pur-search">
+          <input id="purSearch" list="purItemList" placeholder="Search product / barcode" autocomplete="off" />
+          <datalist id="purItemList">${datalist}</datalist>
+          <input id="purQty" type="number" step="0.01" value="1" placeholder="Qty" />
+          <input id="purPurPrice" type="number" step="0.01" placeholder="Purchase ₹" />
+          <input id="purSalePrice" type="number" step="0.01" placeholder="Sale ₹" />
+          <button type="button" class="btn" id="addPurLine">Add</button>
+        </div>
+        <div class="table-wrap" style="flex:1;min-height:180px">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th style="width:70px">Qty</th>
+                <th style="width:90px">Purchase</th>
+                <th style="width:90px">Sale</th>
+                <th style="width:60px">GST%</th>
+                <th style="width:90px">Total</th>
+                <th style="width:40px"></th>
+              </tr>
+            </thead>
+            <tbody id="purLineBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pur-pos-right">
+        <form id="purForm" class="order-summary">
+          <h3 class="full" style="margin:0 0 8px 0">Purchase Summary</h3>
+          <label class="full">Supplier
+            <select name="party_id">
+              <option value="">Walk-in / No supplier</option>
+              ${suppliers.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="summary-row"><span>Subtotal</span><span id="purSubtotal">₹ 0.00</span></div>
+          <div class="summary-row"><span>Tax</span><span id="purTax">₹ 0.00</span></div>
+          <div class="summary-row total"><span>Total</span><span id="purTotal">₹ 0.00</span></div>
+          <label class="full">Paid
+            <input name="paid" id="purPaid" type="number" step="0.01" value="0" />
+          </label>
+          <div class="summary-row"><span>Balance</span><span id="purBalance">₹ 0.00</span></div>
+        </form>
+      </div>
+    </div>`, "purForm", "modal-wide");
   const lines = [];
   const draw = () => {
-    document.getElementById("purLines").innerHTML = lines
-      .map((l, i) => `<div>${esc(l.code)} × ${l.quantity} @ purchase ₹ ${money(l.price)}, sale ₹ ${money(l.sale_price || 0)} <button type="button" data-i="${i}">x</button></div>`)
+    const tbody = document.getElementById("purLineBody");
+    tbody.innerHTML = lines
+      .map(
+        (l, i) => `
+        <tr>
+          <td>${esc(l.name)}</td>
+          <td><input type="number" step="0.01" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
+          <td><input type="number" step="0.01" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
+          <td><input type="number" step="0.01" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
+          <td>${money(l.gst_percent)}</td>
+          <td>₹ ${money(l.line_total)}</td>
+          <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
+        </tr>
+      `
+      )
       .join("");
-    document.querySelectorAll("#purLines [data-i]").forEach((b) =>
+    let subtotal = 0;
+    let tax = 0;
+    for (const l of lines) {
+      const taxable = l.quantity * l.price;
+      const lineTax = Math.round(taxable * l.gst_percent / 100 * 100) / 100;
+      subtotal += taxable;
+      tax += lineTax;
+      l.line_total = Math.round((taxable + lineTax) * 100) / 100;
+    }
+    const total = Math.round((subtotal + tax) * 100) / 100;
+    const paid = Math.round((parseFloat(document.getElementById("purPaid").value) || 0) * 100) / 100;
+    document.getElementById("purSubtotal").textContent = `₹ ${money(subtotal)}`;
+    document.getElementById("purTax").textContent = `₹ ${money(tax)}`;
+    document.getElementById("purTotal").textContent = `₹ ${money(total)}`;
+    document.getElementById("purBalance").textContent = `₹ ${money(total - paid)}`;
+    tbody.querySelectorAll("input[data-i]").forEach((el) =>
+      el.addEventListener("change", (e) => {
+        const li = Number(e.target.dataset.i);
+        const field = e.target.dataset.f;
+        lines[li][field] = Number(e.target.value) || 0;
+        draw();
+      })
+    );
+    tbody.querySelectorAll("button[data-i]").forEach((b) =>
       b.addEventListener("click", () => {
         lines.splice(Number(b.dataset.i), 1);
         draw();
       })
     );
   };
+  document.getElementById("purPaid").addEventListener("input", draw);
   document.getElementById("addPurLine").addEventListener("click", () => {
-    const code = document.getElementById("purCode").value;
+    const code = document.getElementById("purSearch").value.trim();
     const item = state.items.find((i) => i.code === code);
-    const purchasePrice = Number(document.getElementById("purPurPrice").value || item?.purchase_price || 0);
-    const salePrice = Number(document.getElementById("purSalePrice").value || item?.sale_price || 0);
-    if (salePrice <= purchasePrice && salePrice > 0) {
-      return setStatus("Sale price must be higher than purchase price", "error");
+    if (!item) {
+      return setStatus("Select a valid product", "error");
     }
+    const purchasePrice = Number(document.getElementById("purPurPrice").value || item.purchase_price || 0);
+    const salePrice = Number(document.getElementById("purSalePrice").value || item.sale_price || 0);
+    const qty = Number(document.getElementById("purQty").value || 1);
+    if (purchasePrice < 0 || salePrice < 0) return setStatus("Prices cannot be negative", "error");
+    if (salePrice <= purchasePrice && salePrice > 0) return setStatus("Sale price must be higher than purchase price", "error");
+    const taxable = qty * purchasePrice;
+    const lineTax = Math.round(taxable * (item.gst_percent || 0) / 100 * 100) / 100;
     lines.push({
-      code,
-      quantity: Number(document.getElementById("purQty").value || 1),
+      item_id: item.id,
+      code: item.code,
+      name: item.name,
+      quantity: qty,
       price: purchasePrice,
       sale_price: salePrice,
+      gst_percent: item.gst_percent || 0,
+      line_total: Math.round((taxable + lineTax) * 100) / 100,
     });
+    document.getElementById("purSearch").value = "";
+    document.getElementById("purPurPrice").value = "";
+    document.getElementById("purSalePrice").value = "";
+    document.getElementById("purQty").value = "1";
     draw();
+    document.getElementById("purSearch").focus();
   });
   document.getElementById("purForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    await api("/api/purchases", {
-      method: "POST",
-      body: { party_id: fd.get("party_id") || null, items: lines },
-    });
-    closeModal();
-    await loadPurchases();
-    await loadItems(false);
+    try {
+      await api("/api/purchases", {
+        method: "POST",
+        body: { party_id: fd.get("party_id") || null, paid: fd.get("paid"), items: lines },
+      });
+      closeModal();
+      await loadPurchases();
+      await loadItems(false);
+      setStatus("Purchase saved", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
 }
 
@@ -1469,7 +1549,7 @@ function renderSettings(view) {
   });
 }
 
-function openModal(html, formId = null) {
+function openModal(html, formId = null, cardClass = "") {
   const footer = formId
     ? `<div class="modal-footer">
         <button type="submit" form="${formId}" class="btn" id="saveModal">Save</button>
@@ -1478,7 +1558,7 @@ function openModal(html, formId = null) {
     : `<div class="modal-footer">
         <button type="button" class="btn ghost" id="closeModal">Close</button>
       </div>`;
-  modalEl.innerHTML = `<div class="modal-card">${html}${footer}</div>`;
+  modalEl.innerHTML = `<div class="modal-card ${esc(cardClass)}">${html}${footer}</div>`;
   modalEl.setAttribute("aria-hidden", "false");
   document.getElementById("closeModal").addEventListener("click", closeModal);
 }

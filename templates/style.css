@@ -717,12 +717,51 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .modal-footer .btn:first-child {
   margin-right: auto;
 }
-.scanner-view { 
-  width: 100%; 
-  aspect-ratio: 16/9; 
-  background: var(--primary-dark); 
-  border-radius: var(--radius-lg); 
-  overflow: hidden; 
+.modal-card.modal-wide {
+  width: min(1100px, 96vw);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.pur-pos {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  align-items: start;
+}
+.pur-pos-left,
+.pur-pos-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pur-search {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.pur-search input:first-child {
+  flex: 1;
+}
+.pur-search input {
+  min-width: 0;
+}
+.pur-search .btn {
+  white-space: nowrap;
+}
+#purLineBody input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .pur-pos {
+    grid-template-columns: 1fr;
+  }
+  .pur-pos-right {
+    order: -1;
+  }
 }
 
 .help { 
