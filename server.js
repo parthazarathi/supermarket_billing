@@ -12,11 +12,17 @@ const { getSetting, getSettings, setSettings } = require('./lib/settings');
 const { listItems, getItemByCode, getItem, categories, saveItem, deleteItem } = require('./lib/items');
 const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCreditLimit } = require('./lib/parties');
 const { calculateCartTotals } = require('./lib/cart');
-const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn } = require('./lib/invoices');
+const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice } = require('./lib/invoices');
 const { completePurchase, listPurchases, getPurchase } = require('./lib/purchases');
+const { createPurchaseReturn, listPurchaseReturns } = require('./lib/purchaseReturns');
+const { createStockAdjustment, listStockAdjustments } = require('./lib/stockAdjustments');
+const { openSession, closeSession, currentSession } = require('./lib/cashSessions');
+const { logAudit } = require('./lib/audit');
+const { parseRange } = require('./lib/reportUtils');
 const { addExpense, listExpenses, deleteExpense } = require('./lib/expenses');
 const { holdBill, listHeldBills, recallHeldBill } = require('./lib/heldBills');
-const { dashboard, reports } = require('./lib/reports');
+const reportLib = require('./lib/reports');
+const { dashboard, reports } = reportLib;
 const { generateInvoicePDF } = require('./lib/pdfGenerator');
 const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
 const { formatBillText, sendWhatsAppMessage } = require('./lib/whatsapp');
@@ -50,6 +56,8 @@ app.use(session({
 const templatesDir = path.join(__dirname, 'templates');
 app.use('/style.css', express.static(path.join(templatesDir, 'style.css')));
 app.use('/script.js', express.static(path.join(templatesDir, 'script.js')));
+app.use('/reports.js', express.static(path.join(templatesDir, 'reports.js')));
+app.use('/receipt.js', express.static(path.join(templatesDir, 'receipt.js')));
 
 // Helper functions
 function jsonError(message, status = 400) {
@@ -80,6 +88,21 @@ function requireRole(minRole) {
     }
     next();
   };
+}
+
+// Audit helper - records an action for the current user without failing the request
+function audit(req, action, module, reference, description, oldValue, newValue) {
+  const user = currentUser(req) || {};
+  logAudit({
+    userId: user.id || null,
+    username: user.username || '',
+    action,
+    module,
+    reference,
+    oldValue,
+    newValue,
+    description: description || ''
+  });
 }
 
 function getPosId(req) {
@@ -162,17 +185,25 @@ app.post('/api/login', (req, res) => {
   }
   req.session.user = user;
   req.session.carts = { default: { items: {}, billDiscount: 0, partyId: null, partyName: '', partyPhone: '' } };
+  logAudit({ userId: user.id, username: user.username, action: 'login', module: 'auth', description: 'User logged in' });
   res.json({ ok: true, user: user, settings: getSettings() });
 });
 
 app.post('/api/logout', (req, res) => {
+  audit(req, 'logout', 'auth', '', 'User logged out');
   req.session.destroy();
   res.json({ ok: true });
 });
 
 // Dashboard
 app.get('/api/dashboard', loginRequired, (req, res) => {
-  res.json({ ok: true, dashboard: dashboard() });
+  try {
+    const range = parseRange(req.query);
+    const trend = ['7', '30', 'month'].includes(req.query.trend) ? req.query.trend : '7';
+    res.json({ ok: true, dashboard: dashboard(range, trend) });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
 });
 
 // Items
@@ -189,6 +220,7 @@ app.get('/api/items', loginRequired, (req, res) => {
 app.post('/api/items', requireRole('manager'), (req, res) => {
   try {
     const item = saveItem(req.body);
+    audit(req, 'create', 'items', item.code, `Item created: ${item.name}`, null, item);
     res.json({ ok: true, item: item });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -198,6 +230,7 @@ app.post('/api/items', requireRole('manager'), (req, res) => {
 app.put('/api/items/:id', requireRole('manager'), (req, res) => {
   try {
     const item = saveItem(req.body, parseInt(req.params.id));
+    audit(req, 'update', 'items', item.code, `Item updated: ${item.name}`, null, item);
     res.json({ ok: true, item: item });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -205,7 +238,9 @@ app.put('/api/items/:id', requireRole('manager'), (req, res) => {
 });
 
 app.delete('/api/items/:id', requireRole('manager'), (req, res) => {
+  const item = getItem(parseInt(req.params.id));
   deleteItem(parseInt(req.params.id));
+  audit(req, 'delete', 'items', item ? item.code : req.params.id, `Item deleted: ${item ? item.name : req.params.id}`, item, null);
   res.json({ ok: true });
 });
 
@@ -218,6 +253,7 @@ app.get('/api/parties', loginRequired, (req, res) => {
 app.post('/api/parties', requireRole('manager'), (req, res) => {
   try {
     const party = saveParty(req.body);
+    audit(req, 'create', 'parties', party.id, `Party created: ${party.name} (${party.type})`);
     res.json({ ok: true, party: party });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -227,6 +263,7 @@ app.post('/api/parties', requireRole('manager'), (req, res) => {
 app.put('/api/parties/:id', requireRole('manager'), (req, res) => {
   try {
     const party = saveParty(req.body, parseInt(req.params.id));
+    audit(req, 'update', 'parties', party.id, `Party updated: ${party.name}`);
     res.json({ ok: true, party: party });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -234,7 +271,9 @@ app.put('/api/parties/:id', requireRole('manager'), (req, res) => {
 });
 
 app.delete('/api/parties/:id', requireRole('manager'), (req, res) => {
+  const party = getParty(parseInt(req.params.id));
   deleteParty(parseInt(req.params.id));
+  audit(req, 'delete', 'parties', req.params.id, `Party deleted: ${party ? party.name : req.params.id}`, party, null);
   res.json({ ok: true });
 });
 
@@ -244,9 +283,11 @@ app.post('/api/parties/:id/payment', requireRole('manager'), (req, res) => {
       parseInt(req.params.id),
       parseFloat(req.body.amount),
       req.body.method || 'Cash',
-      req.body.note || ''
+      req.body.note || '',
+      currentUser(req).id
     );
     const party = getParty(parseInt(req.params.id));
+    audit(req, 'payment', 'parties', party ? party.name : req.params.id, `Payment ${req.body.method || 'Cash'} ₹${req.body.amount}`);
     res.json({ ok: true, payment: payment, party: party });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -555,6 +596,8 @@ app.post('/api/sale', loginRequired, async (req, res) => {
     state.items = {};
     state.billDiscount = 0;
 
+    audit(req, 'sale', 'sales', invoice.invoice_no, `Sale completed: ${invoice.invoice_no} ₹${invoice.total}`);
+
     // Auto-backup if enabled
     await maybeAutoBackup();
 
@@ -640,8 +683,10 @@ app.post('/api/invoices/:id/payment', loginRequired, (req, res) => {
     const invoice = recordInvoicePayment(
       parseInt(req.params.id),
       parseFloat(req.body.amount),
-      req.body.method || 'Cash'
+      req.body.method || 'Cash',
+      currentUser(req).id
     );
+    audit(req, 'payment', 'sales', invoice.invoice_no, `Due collected: ₹${req.body.amount} (${req.body.method || 'Cash'})`);
     res.json({ ok: true, invoice: invoice });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -650,8 +695,19 @@ app.post('/api/invoices/:id/payment', loginRequired, (req, res) => {
 
 app.post('/api/invoices/:id/return', requireRole('manager'), (req, res) => {
   try {
-    const returnRecord = createSaleReturn(parseInt(req.params.id), req.body.items || [], currentUser(req).id);
+    const returnRecord = createSaleReturn(parseInt(req.params.id), req.body.items || [], currentUser(req).id, req.body.reason || '');
+    audit(req, 'return', 'sales', returnRecord.return_no, `Sale return on invoice ${req.params.id}: ₹${returnRecord.total}`);
     res.json({ ok: true, return: returnRecord });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/invoices/:id/cancel', requireRole('manager'), (req, res) => {
+  try {
+    const invoice = cancelInvoice(parseInt(req.params.id), currentUser(req).id, req.body.reason || '');
+    audit(req, 'cancel', 'sales', invoice.invoice_no, `Bill cancelled: ${invoice.invoice_no} (${req.body.reason || 'no reason'})`);
+    res.json({ ok: true, invoice: invoice });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
   }
@@ -669,7 +725,70 @@ app.post('/api/purchases', requireRole('manager'), (req, res) => {
       paid: req.body.paid,
       userId: currentUser(req).id
     });
+    audit(req, 'create', 'purchases', purchase.purchase_no, `Purchase recorded: ${purchase.purchase_no} ₹${purchase.total}`);
     res.json({ ok: true, purchase: purchase });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/purchases/:id/return', requireRole('manager'), (req, res) => {
+  try {
+    const ret = createPurchaseReturn(parseInt(req.params.id), req.body.items || [], currentUser(req).id, req.body.reason || '');
+    audit(req, 'return', 'purchases', ret.return_no, `Purchase return on ${req.params.id}: ₹${ret.total}`);
+    res.json({ ok: true, return: ret });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/purchase-returns', requireRole('manager'), (req, res) => {
+  res.json({ ok: true, returns: listPurchaseReturns() });
+});
+
+// Stock adjustments (damage / wastage / manual correction)
+app.post('/api/stock-adjustments', requireRole('manager'), (req, res) => {
+  try {
+    const adj = createStockAdjustment({
+      item_id: req.body.item_id,
+      change: req.body.change,
+      type: req.body.type,
+      reason: req.body.reason,
+      userId: currentUser(req).id
+    });
+    audit(req, req.body.type === 'damage' ? 'damage' : req.body.type === 'wastage' ? 'wastage' : 'stock_adjustment',
+      'inventory', adj.item_code || req.body.item_id,
+      `Stock ${req.body.type || 'adjustment'}: ${adj.item_name || ''} ${req.body.change} units`);
+    res.json({ ok: true, adjustment: adj });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/stock-adjustments', requireRole('manager'), (req, res) => {
+  res.json({ ok: true, adjustments: listStockAdjustments({}) });
+});
+
+// Cash drawer sessions (day open / day close)
+app.get('/api/cash-session', loginRequired, (req, res) => {
+  res.json({ ok: true, session: currentSession(currentUser(req).id) });
+});
+
+app.post('/api/cash-session/open', loginRequired, (req, res) => {
+  try {
+    const session = openSession(currentUser(req).id, req.body.opening_cash);
+    audit(req, 'session_open', 'cash', session.id, `Cash session opened with ₹${req.body.opening_cash || 0}`);
+    res.json({ ok: true, session: session });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.post('/api/cash-session/close', loginRequired, (req, res) => {
+  try {
+    const session = closeSession(currentUser(req).id, req.body.closing_cash, req.body.note || '');
+    audit(req, 'session_close', 'cash', session.id, `Cash session closed. Counted ₹${req.body.closing_cash ?? '-'}`);
+    res.json({ ok: true, session: session });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
   }
@@ -687,6 +806,7 @@ app.get('/api/purchases/:id', requireRole('manager'), (req, res) => {
 app.post('/api/expenses', requireRole('manager'), (req, res) => {
   try {
     const expense = addExpense(req.body.category, req.body.amount, req.body.note || '', currentUser(req).id);
+    audit(req, 'create', 'expenses', expense.id, `Expense added: ${expense.category} ₹${expense.amount}`);
     res.json({ ok: true, expense: expense });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -699,6 +819,7 @@ app.get('/api/expenses', requireRole('manager'), (req, res) => {
 
 app.delete('/api/expenses/:id', requireRole('manager'), (req, res) => {
   deleteExpense(parseInt(req.params.id));
+  audit(req, 'delete', 'expenses', req.params.id, `Expense deleted (id ${req.params.id})`);
   res.json({ ok: true });
 });
 
@@ -731,7 +852,19 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       gst_type: true,
       default_gst: true,
       drive_auto_backup: true,
-      must_change_password: true
+      must_change_password: true,
+      receipt_printer_width: true,
+      receipt_font_size: true,
+      receipt_font_family: true,
+      receipt_header: true,
+      receipt_footer: true,
+      receipt_show_gstin: true,
+      receipt_show_customer: true,
+      receipt_show_cashier: true,
+      receipt_show_mrp: true,
+      receipt_show_hsn: true,
+      receipt_show_savings: true,
+      receipt_show_gst_breakup: true
     };
     
     const updates = {};
@@ -742,21 +875,140 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
     }
     
     const settings = setSettings(updates);
+    audit(req, 'update', 'settings', '', `Settings changed: ${Object.keys(updates).join(', ')}`, null, updates);
     res.json({ ok: true, settings: settings });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
   }
 });
 
-// Reports
+// Reports - legacy summary endpoint (defaults to today when params are omitted)
 app.get('/api/reports', requireRole('manager'), (req, res) => {
-  const { from, to } = req.query;
-  if (!from || !to) {
-    return res.status(400).json(jsonError('from and to parameters are required'));
+  try {
+    const range = parseRange(req.query);
+    const reportData = reports(range.from, range.to);
+    res.json({ ok: true, report: reportData, reports: reportData });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+// Report handler registry - each handler receives (range, query) and returns
+// { summary?, rows?, total?, page?, per_page?, ... }
+const REPORT_HANDLERS = {
+  'overview': (range) => reportLib.overview(range),
+
+  'sales/summary': (range) => reportLib.salesReports.summary(range),
+  'sales/day-wise': (range) => reportLib.salesReports.dayWise(range),
+  'sales/bill-wise': (range, qy) => reportLib.salesReports.billWise(range, qy),
+  'sales/item-wise': (range) => reportLib.salesReports.itemWise(range),
+  'sales/category-wise': (range) => reportLib.salesReports.categoryWise(range),
+  'sales/customer-wise': (range) => reportLib.salesReports.customerWise(range),
+  'sales/cashier-wise': (range) => reportLib.salesReports.cashierWise(range),
+  'sales/payment-wise': (range) => reportLib.salesReports.paymentWise(range),
+  'sales/hourly': (range) => reportLib.salesReports.hourly(range),
+  'sales/discounts': (range, qy) => reportLib.salesReports.discounts(range, qy),
+  'sales/cancelled': (range, qy) => reportLib.salesReports.cancelled(range, qy),
+  'sales/returns': (range, qy) => reportLib.salesReports.returnsReport(range, qy),
+
+  'inventory/current-stock': (range, qy) => reportLib.inventoryReports.currentStock(qy),
+  'inventory/low-stock': () => reportLib.inventoryReports.lowStock(),
+  'inventory/out-of-stock': () => reportLib.inventoryReports.outOfStock(),
+  'inventory/valuation': () => reportLib.inventoryReports.valuation(),
+  'inventory/ledger': (range, qy) => reportLib.inventoryReports.stockLedger(parseInt(qy.item_id, 10), range),
+  'inventory/movement': (range) => reportLib.inventoryReports.stockMovement(range),
+  'inventory/fast-moving': (range) => reportLib.inventoryReports.fastMoving(range),
+  'inventory/slow-moving': (range) => reportLib.inventoryReports.slowMoving(range),
+  'inventory/dead-stock': (range, qy) => reportLib.inventoryReports.deadStock(parseInt(qy.days, 10) || 60),
+  'inventory/adjustments': (range, qy) => reportLib.inventoryReports.adjustments(range, { type: qy.adj_type || '', userId: qy.user_id ? parseInt(qy.user_id, 10) : null }),
+
+  'purchases/summary': (range) => reportLib.purchaseReports.summary(range),
+  'purchases/supplier-wise': (range) => reportLib.purchaseReports.supplierWise(range),
+  'purchases/item-wise': (range) => reportLib.purchaseReports.itemWise(range),
+  'purchases/invoices': (range, qy) => reportLib.purchaseReports.invoices(range, qy),
+  'purchases/returns': (range, qy) => reportLib.purchaseReports.returnsReport(range, qy),
+  'purchases/payments': (range, qy) => reportLib.purchaseReports.payments(range, qy),
+  'purchases/pending': () => reportLib.purchaseReports.pendingPayments(),
+  'purchases/price-history': (range, qy) => reportLib.purchaseReports.priceHistory(parseInt(qy.item_id, 10)),
+
+  'profit-loss/summary': (range) => reportLib.financeReports.profitLoss(range),
+  'profit-loss/day-wise': (range) => reportLib.financeReports.dayWiseProfit(range),
+  'profit-loss/item-wise': (range) => reportLib.salesReports.itemWise(range),
+  'profit-loss/category-wise': (range) => reportLib.salesReports.categoryWise(range),
+  'profit-loss/expenses': (range, qy) => reportLib.financeReports.expenseReport(range, qy),
+  'profit-loss/expense-categories': (range) => reportLib.financeReports.expenseCategories(range),
+  'profit-loss/income-expense': (range) => reportLib.financeReports.incomeExpense(range),
+
+  'payments/summary': (range) => reportLib.financeReports.paymentSummary(range),
+  'payments/daily': (range) => reportLib.financeReports.dailyCollections(range),
+  'payments/credit-sales': (range, qy) => reportLib.financeReports.creditSales(range, qy),
+  'payments/collections': (range, qy) => reportLib.financeReports.customerCollections(range, qy),
+  'payments/day-closing': (range, qy) => reportLib.financeReports.dayClosing(range, qy),
+
+  'customers/summary': (range) => reportLib.partyReports.customerSummary(range),
+  'customers/ledger': (range, qy) => reportLib.partyReports.customerLedger(parseInt(qy.party_id, 10), range),
+  'customers/outstanding': () => reportLib.partyReports.customerOutstanding(),
+  'customers/history': (range, qy) => reportLib.partyReports.customerHistory(parseInt(qy.party_id, 10), range, qy),
+  'customers/top': (range) => reportLib.partyReports.topCustomers(range),
+
+  'suppliers/summary': (range) => reportLib.partyReports.supplierSummary(range),
+  'suppliers/ledger': (range, qy) => reportLib.partyReports.supplierLedger(parseInt(qy.party_id, 10), range),
+  'suppliers/outstanding': () => reportLib.partyReports.supplierOutstanding(),
+  'suppliers/payments': (range, qy) => reportLib.partyReports.supplierPayments(range, qy),
+  'suppliers/top': (range) => reportLib.partyReports.topSuppliers(range),
+
+  'returns/all': (range, qy) => reportLib.staffReports.returnsUnified(range, qy),
+
+  'gst/sales': (range) => reportLib.gstReports.salesSummary(range),
+  'gst/purchases': (range) => reportLib.gstReports.purchaseSummary(range),
+  'gst/rate-wise': (range) => reportLib.gstReports.rateWiseSales(range),
+  'gst/hsn-sales': (range) => reportLib.gstReports.hsnSales(range),
+  'gst/hsn-purchases': (range) => reportLib.gstReports.hsnPurchases(range),
+  'gst/returns': (range) => reportLib.gstReports.returnsSummary(range),
+
+  'cashiers/sales': (range) => reportLib.staffReports.cashierSales(range),
+  'cashiers/payments': (range) => reportLib.staffReports.cashierPayments(range),
+  'cashiers/discounts': (range, qy) => reportLib.staffReports.cashierDiscounts(range, qy),
+  'cashiers/returns': (range, qy) => reportLib.staffReports.cashierReturns(range, qy),
+  'cashiers/sessions': (range, qy) => reportLib.staffReports.sessionsReport(range, qy),
+
+  'meta': () => reportLib.staffReports.meta()
+};
+
+app.get('/api/reports/audit', requireRole('manager'), (req, res) => {
+  try {
+    const range = parseRange(req.query);
+    const data = reportLib.staffReports.auditReport(range, req.query);
+    res.json({ ok: true, report: data });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/reports/:group/:name', requireRole('manager'), (req, res) => {
+  const key = `${req.params.group}/${req.params.name}`;
+  const handler = REPORT_HANDLERS[key];
+  if (!handler) {
+    return res.status(404).json(jsonError('Unknown report'));
   }
   try {
-    const reportData = reports(from, to);
-    res.json({ ok: true, reports: reportData });
+    const range = parseRange(req.query);
+    const data = handler(range, req.query);
+    res.json({ ok: true, report: { from: range.from, to: range.to, ...data } });
+  } catch (error) {
+    res.status(400).json(jsonError(error.message));
+  }
+});
+
+app.get('/api/reports/:name', requireRole('manager'), (req, res) => {
+  const handler = REPORT_HANDLERS[req.params.name];
+  if (!handler) {
+    return res.status(404).json(jsonError('Unknown report'));
+  }
+  try {
+    const range = parseRange(req.query);
+    const data = handler(range, req.query);
+    res.json({ ok: true, report: { from: range.from, to: range.to, ...data } });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
   }
@@ -770,6 +1022,7 @@ app.get('/api/users', requireRole('admin'), (req, res) => {
 app.post('/api/users', requireRole('admin'), (req, res) => {
   try {
     const user = createUser(req.body.username, req.body.password, req.body.role);
+    audit(req, 'create', 'users', user.username, `User created: ${user.username} (${user.role})`);
     res.json({ ok: true, user: user });
   } catch (error) {
     res.status(400).json(jsonError(error.message));
@@ -787,6 +1040,7 @@ app.put('/api/users/:id/password', loginRequired, (req, res) => {
     }
     
     updateUserPassword(targetUserId, req.body.password);
+    audit(req, 'password_change', 'users', targetUserId, `Password changed for user id ${targetUserId}`);
     
     // If user changed their own password, reset must_change_password setting
     if (user.id === targetUserId) {
@@ -801,7 +1055,9 @@ app.put('/api/users/:id/password', loginRequired, (req, res) => {
 
 app.delete('/api/users/:id', requireRole('admin'), (req, res) => {
   try {
+    const target = getUserById(parseInt(req.params.id));
     deleteUser(parseInt(req.params.id));
+    audit(req, 'delete', 'users', req.params.id, `User deleted: ${target ? target.username : req.params.id}`);
     res.json({ ok: true });
   } catch (error) {
     res.status(400).json(jsonError(error.message));

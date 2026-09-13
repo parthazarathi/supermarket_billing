@@ -311,49 +311,246 @@ function renderView() {
   (map[state.view] || renderPos)(view);
 }
 
+const DASH_PRESETS = [
+  ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 Days"],
+  ["30d", "Last 30 Days"], ["month", "This Month"], ["custom", "Custom"],
+];
+
+function dashPresetRange(p, from, to) {
+  const t = new Date();
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const shift = (n) => { const d = new Date(t); d.setDate(d.getDate() + n); return iso(d); };
+  switch (p) {
+    case "yesterday": return { from: shift(-1), to: shift(-1) };
+    case "7d": return { from: shift(-6), to: iso(t) };
+    case "30d": return { from: shift(-29), to: iso(t) };
+    case "month": return { from: iso(t).slice(0, 8) + "01", to: iso(t) };
+    case "custom": return { from, to };
+    default: return { from: iso(t), to: iso(t) };
+  }
+}
+
+function dashState() {
+  if (!state.dash) {
+    const t = dashPresetRange("today");
+    state.dash = { preset: "today", from: t.from, to: t.to, trend: "7" };
+  }
+  return state.dash;
+}
+
+const fmtD = (iso) => { // DD-MM-YYYY
+  if (!iso) return "";
+  const s = String(iso).slice(0, 10);
+  return s.includes("-") ? s.split("-").reverse().join("-") : s;
+};
+const fmtT = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+const fmtInt = (n) => Number(n || 0).toLocaleString("en-IN");
+
+function dashCard(k, label, cls, kind = "money") {
+  const shown = kind === "int" ? fmtInt(k.value) : `₹ ${money(k.value)}`;
+  let sub = "";
+  if (k.sub !== null && k.sub !== undefined && k.sub !== "") {
+    if (typeof k.sub === "number") {
+      const up = k.sub >= 0;
+      sub = `<div class="dash-delta ${up ? "up" : "down"}">${up ? "↑" : "↓"} ${Math.abs(k.sub)}% vs ${esc(k.prev_label)}</div>`;
+    } else {
+      sub = `<div class="dash-sub">${esc(k.sub)}</div>`;
+    }
+  }
+  return `<div class="card ${cls || ""}"><div class="label">${esc(label)}</div><div class="value">${shown}</div>${sub}</div>`;
+}
+
 function renderDashboard(view) {
-  const d = state.dashboard || {
-    today_sales: 0,
-    today_invoices: 0,
-    unpaid_dues: 0,
-    today_expenses: 0,
-    low_stock: [],
-    recent_invoices: [],
-  };
+  const ds = dashState();
+  const d = state.dashboard;
+
+  const kpi = d ? d.kpi : null;
+  const mgr = can("manager");
+
   view.innerHTML = `
-    <div class="cards">
-      <div class="card green"><div class="label">Today's sales</div><div class="value">₹ ${money(d.today_sales)}</div></div>
-      <div class="card blue"><div class="label">Bills today</div><div class="value">${d.today_invoices}</div></div>
-      <div class="card"><div class="label">Unpaid dues</div><div class="value">₹ ${money(d.unpaid_dues)}</div></div>
-      <div class="card"><div class="label">Today's expenses</div><div class="value">₹ ${money(d.today_expenses)}</div></div>
+    <div class="dash-filter">
+      ${DASH_PRESETS.map(([p, l]) => `<button class="chip ${ds.preset === p ? "active" : ""}" data-dp="${p}">${l}</button>`).join("")}
+      ${ds.preset === "custom" ? `
+        <input type="date" id="dashFrom" value="${esc(ds.from)}" />
+        <input type="date" id="dashTo" value="${esc(ds.to)}" />
+        <button class="btn sm" id="dashApply">Apply</button>` : ""}
+      <span class="muted" style="margin-left:auto;font-size:12px">Showing ${fmtD(ds.from)} to ${fmtD(ds.to)}</span>
     </div>
-    <div class="pos" style="margin-top:16px">
+
+    ${!d ? (state.dashError
+      ? `<div class="rpt-empty">Could not load dashboard: ${esc(state.dashError)}</div>`
+      : `<div class="rpt-loading"><div class="rpt-spinner"></div>Loading dashboard...</div>`) : `
+
+    <div class="cards dash-kpi">
+      ${dashCard(kpi.sales, ds.preset === "today" ? "Today's Sales" : "Sales", "green")}
+      ${dashCard(kpi.bills, ds.preset === "today" ? "Bills Today" : "Bills", "blue", "int")}
+      ${dashCard(kpi.gross_profit, "Gross Profit")}
+      ${dashCard(kpi.customer_outstanding, "Customer Outstanding")}
+    </div>
+    <div class="cards dash-kpi-secondary">
+      ${dashCard(kpi.expenses, ds.preset === "today" ? "Today's Expenses" : "Expenses")}
+      ${dashCard(kpi.sales_returns, "Sales Returns")}
+      ${dashCard(kpi.items_sold, "Items Sold", "", "int")}
+      ${dashCard(kpi.low_stock, "Low Stock Items", "", "int")}
+    </div>
+
+    <div class="dash-actions">
+      <button class="btn sm" data-qa="pos">+ New Bill</button>
+      ${mgr ? `
+        <button class="btn sm ghost" data-qa="add-item">+ Add Item</button>
+        <button class="btn sm ghost" data-qa="new-purchase">+ New Purchase</button>
+        <button class="btn sm ghost" data-qa="expenses">+ Add Expense</button>
+        <button class="btn sm ghost" data-qa="items">Stock Adjustment</button>
+        <button class="btn sm ghost" data-qa="reports">Reports</button>` : ""}
+    </div>
+
+    <div class="dash-grid">
       <div class="card">
-        <h3>Low stock</h3>
-        <div class="table-wrap">
-          <table><thead><tr><th>Item</th><th>Stock</th></tr></thead>
-          <tbody>${
-            (d.low_stock || [])
-              .map((i) => `<tr><td>${esc(i.name)}</td><td class="low">${money(i.stock)} ${esc(i.unit)}</td></tr>`)
-              .join("") || `<tr><td colspan="2">All items look healthy</td></tr>`
-          }</tbody></table>
+        <div class="dash-card-head">
+          <h3>Sales Trend</h3>
+          <div class="dash-seg">
+            ${[["7", "7D"], ["30", "30D"], ["month", "This Month"]].map(([v, l]) =>
+              `<button class="chip sm ${d.trend_key === v ? "active" : ""}" data-trend="${v}">${l}</button>`).join("")}
+          </div>
+        </div>
+        ${d.trend.length ? `
+          <div class="dash-chart">
+            ${(() => { const max = Math.max(...d.trend.map((r) => Math.max(r.net_sales, r.profit)), 1); return d.trend.map((r) => `
+              <div class="dash-bar-col" title="${fmtD(r.day)} · Sales ₹${money(r.net_sales)} · Profit ₹${money(r.profit)} · ${r.bills} bills">
+                <div class="dash-bars">
+                  <div class="dash-bar sales" style="height:${Math.max(2, r.net_sales / max * 100)}%"></div>
+                  <div class="dash-bar profit" style="height:${Math.max(2, Math.max(0, r.profit) / max * 100)}%"></div>
+                </div>
+                <div class="dash-bar-x">${esc(String(r.day).slice(8, 10))}</div>
+              </div>`).join(""); })()}
+          </div>
+          <div class="dash-legend"><span class="dot sales"></span> Net sales <span class="dot profit"></span> Profit <span class="muted">· hover for bills</span></div>
+        ` : `<div class="dash-empty">No sales found for this period.</div>`}
+      </div>
+
+      <div class="card">
+        <h3>Payment Collection</h3>
+        ${d.payments.rows.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Mode</th><th class="num">Amount</th><th class="num">%</th></tr></thead>
+            <tbody>${d.payments.rows.map((p) => `<tr><td>${esc(p.method)}</td><td class="num">₹ ${money(p.amount)}</td><td class="num">${money(p.percent)}%</td></tr>`).join("")}</tbody>
+            <tfoot><tr><td><b>Total</b></td><td class="num"><b>₹ ${money(d.payments.collected)}</b></td><td></td></tr></tfoot>
+          </table></div>
+          ${Number(d.payments.credit) > 0 ? `<p class="muted" style="margin-top:8px">Credit (unpaid) sales: ₹ ${money(d.payments.credit)}</p>` : ""}
+        ` : `<div class="dash-empty">No collections for this period.</div>`}
+      </div>
+
+      <div class="card">
+        <div class="dash-card-head"><h3>Top Selling Items</h3>${mgr ? `<button class="btn ghost sm" data-qa="reports">View Sales Report</button>` : ""}</div>
+        ${d.top_items.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th>#</th><th>Item</th><th class="num">Qty</th><th class="num">Sales</th><th class="num">Profit</th></tr></thead>
+            <tbody>${d.top_items.slice(0, 10).map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.item)}</td><td class="num">${money(it.qty)}</td><td class="num">₹ ${money(it.sales)}</td><td class="num">₹ ${money(it.profit)}</td></tr>`).join("")}</tbody>
+          </table></div>
+        ` : `<div class="dash-empty">No sales found for this period.</div>`}
+      </div>
+
+      <div class="card">
+        <div class="dash-card-head"><h3>Stock Alerts</h3>${mgr ? `<button class="btn ghost sm" data-qa="items">View Inventory</button>` : ""}</div>
+        ${d.stock_alerts.length ? `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th class="num">Stock</th><th class="num">Reorder</th><th>Status</th></tr></thead>
+            <tbody>${d.stock_alerts.map((i) => `<tr class="${i.status === "Critical" ? "dash-row-critical" : ""}">
+              <td>${esc(i.name)}</td><td class="num">${money(i.stock)} ${esc(i.unit)}</td><td class="num">${money(i.low_stock)}</td>
+              <td><span class="badge badge-${i.status === "Critical" ? "cancelled" : "partial"}">${i.status}</span></td></tr>`).join("")}</tbody>
+          </table></div>
+        ` : `<div class="dash-empty">No low-stock items.</div>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Recent Bills</h3>
+      ${d.recent_bills.length ? `
+        <div class="table-wrap"><table>
+          <thead><tr><th>Invoice</th><th>Time</th><th>Customer</th><th>Payment</th><th class="num">Total</th><th>Status</th></tr></thead>
+          <tbody>${d.recent_bills.map((i) => `<tr>
+            <td><a href="/invoice_pdf?id=${i.id}" target="_blank" class="dash-link">${esc(i.invoice_no)}</a></td>
+            <td>${fmtT(i.created_at)}</td>
+            <td>${esc(i.party_name || "Walk-in")}</td>
+            <td>${esc(i.payment_method)}</td>
+            <td class="num">₹ ${money(i.total)}</td>
+            <td><span class="badge badge-${i.status === "paid" ? "paid" : i.status === "partial" ? "partial" : i.status === "cancelled" ? "cancelled" : i.status === "returned" ? "partial" : "unpaid"}">${esc(i.status)}</span></td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+      ` : `<div class="dash-empty">No recent bills.</div>`}
+    </div>
+
+    <div class="dash-grid">
+      <div class="card">
+        <h3>Business Summary</h3>
+        <div class="dash-summary">
+          ${[["Gross Sales", d.business.gross_sales], ["Sales Returns", -d.business.sales_returns], ["Discounts", -d.business.discounts], ["Net Sales", d.business.net_sales], ["Cost of Goods Sold", -d.business.cogs], ["Gross Profit", d.business.gross_profit], ["Expenses", -d.business.expenses], ["Net Profit", d.business.net_profit]]
+            .map(([l, v]) => `<div class="dash-sum-row ${l === "Net Profit" ? "tot" : ""}"><span>${l}</span><span class="${v < 0 ? "dash-neg" : ""}">₹ ${money(Math.abs(v))}${v < 0 ? " −" : ""}</span></div>`).join("")}
+          <div class="dash-sum-row muted"><span>Gross Margin</span><span>${money(d.business.gross_margin)}%</span></div>
+          <div class="dash-sum-row muted"><span>Net Margin</span><span>${money(d.business.net_margin)}%</span></div>
         </div>
       </div>
       <div class="card">
-        <h3>Recent bills</h3>
-        <div class="table-wrap">
-          <table><thead><tr><th>No</th><th>Total</th><th>Status</th></tr></thead>
-          <tbody>${
-            (d.recent_invoices || [])
-              .map(
-                (i) =>
-                  `<tr><td>${esc(i.invoice_no)}</td><td>₹ ${money(i.total)}</td><td>${esc(i.status)}</td></tr>`
-              )
-              .join("") || `<tr><td colspan="3">No sales yet</td></tr>`
-          }</tbody></table>
+        <h3>Outstanding</h3>
+        <div class="dash-outstanding">
+          <div class="dash-out-box">
+            <div class="label">Customer Outstanding</div>
+            <div class="value">₹ ${money(d.outstanding.customers.total)}</div>
+            <div class="dash-sub">${d.outstanding.customers.parties} customers</div>
+            ${mgr ? `<button class="btn ghost sm" data-qa="parties">View All</button>` : ""}
+          </div>
+          <div class="dash-out-box">
+            <div class="label">Supplier Outstanding</div>
+            <div class="value">₹ ${money(d.outstanding.suppliers.total)}</div>
+            <div class="dash-sub">${d.outstanding.suppliers.parties} suppliers</div>
+            ${mgr ? `<button class="btn ghost sm" data-qa="parties">View All</button>` : ""}
+          </div>
         </div>
       </div>
-    </div>`;
+    </div>
+    `}`;
+
+  // Filter chip handlers
+  view.querySelectorAll("[data-dp]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = btn.dataset.dp;
+      ds.preset = p;
+      if (p !== "custom") {
+        const r = dashPresetRange(p);
+        ds.from = r.from; ds.to = r.to;
+        loadDashboard();
+      } else {
+        renderView();
+      }
+    });
+  });
+  const dApply = view.querySelector("#dashApply");
+  if (dApply) {
+    dApply.addEventListener("click", () => {
+      ds.from = view.querySelector("#dashFrom").value;
+      ds.to = view.querySelector("#dashTo").value;
+      if (!ds.from || !ds.to) return setStatus("Select both dates", "error");
+      if (ds.from > ds.to) return setStatus("From date cannot be after To date", "error");
+      loadDashboard();
+    });
+  }
+  view.querySelectorAll("[data-trend]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      ds.trend = btn.dataset.trend;
+      loadDashboard();
+    });
+  });
+  view.querySelectorAll("[data-qa]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const a = btn.dataset.qa;
+      if (a === "add-item") itemForm();
+      else switchView(a);
+    });
+  });
 }
 
 function renderPos(view) {
@@ -916,7 +1113,11 @@ async function chargeBill(openPdf = false) {
     state.sendWhatsapp = false;
     setStatus(`Saved ${data.invoice.invoice_no}`, "ok");
     if (openPdf) {
-      window.open(`/invoice_pdf?id=${data.invoice.id}`, "_blank");
+      if (window.ReceiptPrinter) {
+        ReceiptPrinter.print(data.invoice);
+      } else {
+        window.open(`/invoice_pdf?id=${data.invoice.id}`, "_blank");
+      }
     }
     await loadItems(false);
   } catch (err) {
@@ -962,6 +1163,7 @@ function renderItems(view) {
                 ${
                   can("manager")
                     ? `<td><button class="btn ghost sm" data-edit="${i.id}">Edit</button>
+                       <button class="btn ghost sm" data-adj="${i.id}">Adjust</button>
                        <button class="btn danger sm" data-del="${i.id}">Delete</button></td>`
                     : ""
                 }
@@ -975,12 +1177,54 @@ function renderItems(view) {
   view.querySelectorAll("[data-edit]").forEach((btn) => {
     btn.addEventListener("click", () => itemForm(state.items.find((i) => String(i.id) === btn.dataset.edit)));
   });
+  view.querySelectorAll("[data-adj]").forEach((btn) => {
+    btn.addEventListener("click", () => stockAdjustForm(state.items.find((i) => String(i.id) === btn.dataset.adj)));
+  });
   view.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this item?")) return;
       await api(`/api/items/${btn.dataset.del}`, { method: "DELETE" });
       await loadItems();
     });
+  });
+}
+
+function stockAdjustForm(item) {
+  if (!item) return;
+  openModal(`
+    <h3>Stock adjustment - ${esc(item.name)}</h3>
+    <p class="muted">Current stock: ${money(item.stock)} ${esc(item.unit)}</p>
+    <form id="adjForm" class="form-grid">
+      <label>Type
+        <select name="type">
+          <option value="adjustment">Adjustment (+ or -)</option>
+          <option value="damage">Damage (reduces stock)</option>
+          <option value="wastage">Wastage (reduces stock)</option>
+        </select>
+      </label>
+      <label>Quantity change
+        <input name="change" type="number" step="1" placeholder="e.g. -2 or 5" required />
+      </label>
+      <label class="full">Reason
+        <input name="reason" placeholder="Reason for adjustment" />
+      </label>
+      <div class="full form-error" id="adjFormError" style="display:none"></div>
+    </form>`, "adjForm");
+  document.getElementById("adjForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api("/api/stock-adjustments", {
+        method: "POST",
+        body: { item_id: item.id, change: Number(fd.change), type: fd.type, reason: fd.reason },
+      });
+      closeModal();
+      await loadItems();
+      setStatus("Stock adjusted", "ok");
+    } catch (err) {
+      const errEl = document.getElementById("adjFormError");
+      if (errEl) { errEl.textContent = err.message; errEl.style.display = "block"; }
+    }
   });
 }
 
@@ -1179,8 +1423,9 @@ function renderSales(view) {
                 <td>₹ ${money(i.total)}</td><td>₹ ${money(i.paid)}</td><td>${esc(i.status)}</td>
                 <td>
                   <a class="btn ghost sm" href="/invoice_pdf?id=${i.id}" target="_blank">PDF</a>
-                  ${Number(i.total) > Number(i.paid) ? `<button class="btn sm" data-pay="${i.id}">Pay</button>` : ""}
-                  ${can("manager") ? `<button class="btn ghost sm" data-ret="${i.id}">Return</button>` : ""}
+                  ${i.status !== "cancelled" && Number(i.total) > Number(i.paid) ? `<button class="btn sm" data-pay="${i.id}">Pay</button>` : ""}
+                  ${can("manager") && i.status !== "cancelled" ? `<button class="btn ghost sm" data-ret="${i.id}">Return</button>` : ""}
+                  ${can("manager") && i.status !== "cancelled" ? `<button class="btn danger sm" data-cancel="${i.id}">Cancel</button>` : ""}
                 </td>
               </tr>`
             )
@@ -1199,6 +1444,19 @@ function renderSales(view) {
   view.querySelectorAll("[data-ret]").forEach((btn) => {
     btn.addEventListener("click", () => openReturn(btn.dataset.ret));
   });
+  view.querySelectorAll("[data-cancel]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const reason = prompt("Reason for cancelling this bill:", "");
+      if (reason === null) return;
+      try {
+        await api(`/api/invoices/${btn.dataset.cancel}/cancel`, { method: "POST", body: { reason } });
+        setStatus("Bill cancelled", "ok");
+        await loadSales();
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
+  });
 }
 
 async function openReturn(id) {
@@ -1214,6 +1472,10 @@ async function openReturn(id) {
           </label>`
         )
         .join("")}
+      <label class="row" style="display:block;margin-top:10px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Reason (optional)</span>
+        <input name="reason" type="text" placeholder="e.g. damaged, wrong item" style="width:100%;margin-top:4px" />
+      </label>
     </form>`, "retForm");
   document.getElementById("retForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1221,10 +1483,14 @@ async function openReturn(id) {
     const items = (inv.items || [])
       .map((it) => ({ invoice_item_id: it.id, quantity: Number(fd.get(`q_${it.id}`) || 0) }))
       .filter((x) => x.quantity > 0);
-    await api(`/api/invoices/${id}/return`, { method: "POST", body: { items } });
-    closeModal();
-    await loadSales();
-    setStatus("Return saved", "ok");
+    try {
+      await api(`/api/invoices/${id}/return`, { method: "POST", body: { items, reason: fd.get("reason") || "" } });
+      closeModal();
+      await loadSales();
+      setStatus("Return saved", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
 }
 
@@ -1233,18 +1499,57 @@ function renderPurchases(view) {
     <div class="toolbar"><button class="btn" id="newPurchase">New purchase</button></div>
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>No</th><th>Supplier</th><th>Total</th><th>Date</th></tr></thead>
+        <thead><tr><th>No</th><th>Supplier</th><th>Total</th><th>Date</th><th></th></tr></thead>
         <tbody>
           ${state.purchases
             .map(
               (p) =>
-                `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.party_name)}</td><td>₹ ${money(p.total)}</td><td>${esc(p.created_at)}</td></tr>`
+                `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.party_name)}</td><td>₹ ${money(p.total)}</td><td>${esc(p.created_at)}</td>
+                <td><button class="btn ghost sm" data-pret="${p.id}">Return</button></td></tr>`
             )
             .join("")}
         </tbody>
       </table>
     </div>`;
   document.getElementById("newPurchase").addEventListener("click", () => switchView("new-purchase"));
+  view.querySelectorAll("[data-pret]").forEach((btn) => {
+    btn.addEventListener("click", () => openPurchaseReturn(btn.dataset.pret));
+  });
+}
+
+async function openPurchaseReturn(id) {
+  const pur = (await api(`/api/purchases/${id}`)).purchase;
+  openModal(`
+    <h3>Return to supplier - ${esc(pur.purchase_no)}</h3>
+    <form id="pretForm">
+      ${(pur.items || [])
+        .map(
+          (it) => `<label class="row" style="display:flex;gap:8px;margin:8px 0;align-items:center">
+            <span style="flex:1">${esc(it.name)}</span>
+            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" style="width:90px" />
+          </label>`
+        )
+        .join("")}
+      <label class="row" style="display:block;margin-top:10px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Reason (optional)</span>
+        <input name="reason" type="text" placeholder="e.g. damaged stock" style="width:100%;margin-top:4px" />
+      </label>
+    </form>`, "pretForm");
+  document.getElementById("pretForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const items = (pur.items || [])
+      .map((it) => ({ purchase_item_id: it.id, quantity: Number(fd.get(`q_${it.id}`) || 0) }))
+      .filter((x) => x.quantity > 0);
+    try {
+      await api(`/api/purchases/${id}/return`, { method: "POST", body: { items, reason: fd.get("reason") || "" } });
+      closeModal();
+      await loadPurchases();
+      setStatus("Purchase return saved", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  });
 }
 
 function makeResizable(table) {
@@ -1548,34 +1853,11 @@ function renderExpenses(view) {
 }
 
 function renderReports(view) {
-  const r = state.report || {};
-  const today = new Date().toISOString().slice(0, 10);
-  view.innerHTML = `
-    <form class="toolbar" id="repForm">
-      <input type="date" name="from" value="${r.date_from || today}" />
-      <input type="date" name="to" value="${r.date_to || today}" />
-      <button class="btn">Show report</button>
-    </form>
-    <div class="cards">
-      <div class="card green"><div class="label">Sales</div><div class="value">₹ ${money(r.sales)}</div></div>
-      <div class="card"><div class="label">Purchases</div><div class="value">₹ ${money(r.purchases)}</div></div>
-      <div class="card"><div class="label">Expenses</div><div class="value">₹ ${money(r.expenses)}</div></div>
-      <div class="card blue"><div class="label">Profit</div><div class="value">₹ ${money(r.profit)}</div></div>
-    </div>
-    <p class="muted">Profit = sales − cost of goods − expenses − returns. Dues: ₹ ${money(r.dues)}</p>
-    <div class="card table-wrap">
-      <table><thead><tr><th>Day</th><th>Bills</th><th>Sales</th></tr></thead>
-      <tbody>${
-        (r.by_day || [])
-          .map((d) => `<tr><td>${esc(d.day)}</td><td>${d.n}</td><td>₹ ${money(d.total)}</td></tr>`)
-          .join("") || `<tr><td colspan="3">No data in this range</td></tr>`
-      }</tbody></table>
-    </div>`;
-  document.getElementById("repForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    await loadReports(fd.get("from"), fd.get("to"));
-  });
+  if (window.ReportsModule) {
+    ReportsModule.render(view);
+  } else {
+    view.innerHTML = `<div class="rpt-empty">Reports module failed to load.</div>`;
+  }
 }
 
 function renderSettings(view) {
@@ -1612,8 +1894,48 @@ function renderSettings(view) {
             <option value="1" ${s.drive_auto_backup === "1" ? "selected" : ""}>Auto backup after each sale</option>
           </select>
         </label>
+
+        <h3 class="full">Receipt printer</h3>
+        <label>Paper width
+          <select name="receipt_printer_width">
+            <option value="58" ${s.receipt_printer_width === "58" ? "selected" : ""}>58 mm (2 inch)</option>
+            <option value="80" ${!s.receipt_printer_width || s.receipt_printer_width === "80" ? "selected" : ""}>80 mm (3 inch)</option>
+            <option value="100" ${s.receipt_printer_width === "100" ? "selected" : ""}>100 mm (4 inch)</option>
+          </select>
+        </label>
+        <label>Font size
+          <input name="receipt_font_size" type="number" min="9" max="18" step="1" value="${esc(s.receipt_font_size || "12")}" />
+        </label>
+        <label>Font family
+          <select name="receipt_font_family">
+            ${ReceiptPrinter.FONT_FAMILIES.map(([v, l]) =>
+              `<option value="${esc(v)}" ${(s.receipt_font_family || "'Courier New', monospace") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="full">Header lines (address, phone etc.)
+          <textarea name="receipt_header" rows="2" placeholder="e.g. 12, Main Road, Chennai · Ph: 98765 43210">${esc(s.receipt_header || "")}</textarea>
+        </label>
+        <label class="full">Footer text
+          <textarea name="receipt_footer" rows="2" placeholder="Thank you! Visit again">${esc(s.receipt_footer || "Thank you! Visit again")}</textarea>
+        </label>
+        <div class="full receipt-toggles">
+          ${[["receipt_show_gstin", "Show GSTIN"], ["receipt_show_customer", "Show customer"], ["receipt_show_cashier", "Show cashier"], ["receipt_show_mrp", "Show MRP vs price"], ["receipt_show_hsn", "Show HSN codes"], ["receipt_show_savings", "Show 'You saved'"], ["receipt_show_gst_breakup", "Show GST breakup"]]
+            .map(([k, l]) => {
+              const on = s[k] === undefined ? ["receipt_show_gstin", "receipt_show_customer", "receipt_show_cashier", "receipt_show_savings", "receipt_show_gst_breakup"].includes(k) : s[k] === "1";
+              return `<label class="check"><input type="checkbox" name="${k}" ${on ? "checked" : ""} /> ${l}</label>`;
+            }).join("")}
+        </div>
+
         <div class="full"><button class="btn" type="submit">Save settings</button></div>
       </form>
+      <div class="card">
+        <h3>Receipt preview</h3>
+        <p class="help">Live preview of the thermal receipt template. Changes update instantly; save to keep them.</p>
+        <div id="receiptPreview"></div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn ghost" id="rcTestPrint">Print test receipt</button>
+        </div>
+      </div>
       <div class="card">
         <h3>Google Drive backup</h3>
         <p class="help">1. Create a Google Cloud OAuth <b>Desktop</b> client.<br>
@@ -1649,13 +1971,40 @@ function renderSettings(view) {
         </form>
       </div>
     </div>`;
+  const receiptCfgFromForm = (form) => {
+    const fd = new FormData(form);
+    const cfg = {};
+    for (const k of Object.keys(ReceiptPrinter.DEFAULTS)) {
+      const field = `receipt_${k}`;
+      cfg[k] = k.startsWith("show_") ? (fd.get(field) === "on" ? "1" : "0") : (fd.get(field) || "");
+    }
+    return cfg;
+  };
+  const refreshReceiptPreview = () => {
+    const form = document.getElementById("setForm");
+    const box = document.getElementById("receiptPreview");
+    if (form && box && window.ReceiptPrinter) {
+      ReceiptPrinter.preview(box, receiptCfgFromForm(form));
+    }
+  };
   document.getElementById("setForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
+    // Checkbox fields only appear when checked - persist explicit 1/0
+    for (const k of Object.keys(ReceiptPrinter.DEFAULTS).filter((x) => x.startsWith("show_"))) {
+      fd[`receipt_${k}`] = e.target.querySelector(`[name="receipt_${k}"]`).checked ? "1" : "0";
+    }
     const data = await api("/api/settings", { method: "POST", body: fd });
     state.settings = data.settings;
     setStatus("Settings saved", "ok");
   });
+  document.getElementById("setForm").addEventListener("input", refreshReceiptPreview);
+  document.getElementById("setForm").addEventListener("change", refreshReceiptPreview);
+  document.getElementById("rcTestPrint").addEventListener("click", () => {
+    const form = document.getElementById("setForm");
+    ReceiptPrinter.print(ReceiptPrinter.sampleInvoice(), receiptCfgFromForm(form));
+  });
+  refreshReceiptPreview();
   document.getElementById("drvConnect").addEventListener("click", async () => {
     try {
       setStatus("A browser window will open for Google sign-in...");
@@ -1792,8 +2141,16 @@ document.addEventListener("keydown", (e) => {
 });
 
 async function loadDashboard() {
-  state.dashboard = (await api("/api/dashboard")).dashboard;
-  renderView();
+  const ds = dashState();
+  try {
+    const data = await api(`/api/dashboard?from=${ds.from}&to=${ds.to}&trend=${ds.trend}`);
+    state.dashboard = data.dashboard;
+    state.dashError = "";
+  } catch (err) {
+    state.dashError = err.message;
+    state.dashboard = null;
+  }
+  if (state.view === "dashboard") renderView();
 }
 async function loadItems(rerender = true) {
   const data = await api(`/api/items?q=&category=${encodeURIComponent(state.category || "")}`);
@@ -1855,10 +2212,10 @@ async function loadExpenses() {
   state.expenses = (await api("/api/expenses")).expenses;
   renderView();
 }
-async function loadReports(from, to) {
-  const q = from && to ? `?from=${from}&to=${to}` : "";
-  state.report = (await api(`/api/reports${q}`)).report;
-  renderView();
+async function loadReports() {
+  if (window.ReportsModule) {
+    await ReportsModule.load();
+  }
 }
 async function loadSettings() {
   const data = await api("/api/settings");
