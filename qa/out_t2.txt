@@ -1,0 +1,505 @@
+[PASS] TC-PUR-000 rice opening stock
+       expected: 100
+       actual:   100
+[PASS] TC-PUR-001 create credit purchase 50 rice @40 gst5
+       expected: {"ok":true,"subtotal":2000,"tax":100,"total":2100,"paid":0}
+       actual:   {"ok":true,"subtotal":2000,"tax":100,"total":2100,"paid":0}
+       note: {"ok":true,"purchase":{"id":2,"purchase_no":"PUR-20260913-0002","party_id":12,"party_name":"TEST-SUPPLIER-001","subtotal":2000,"tax":100,"total":2100,"paid":0,"user_id":1,"created_at":"2026-09-13T17:4
+[PASS] TC-PUR-001-stock stock 100+50
+       expected: 150
+       actual:   150
+[PASS] TC-PUR-007 supplier outstanding +2100 after credit purchase
+       expected: 2100
+       actual:   2100
+[PASS] TC-PUR-002/008 multi-item partial-paid purchase totals
+       expected: {"subtotal":1590,"tax":42,"total":1632,"paid":500}
+       actual:   {"subtotal":1590,"tax":42,"total":1632,"paid":500}
+       note: {"ok":true,"purchase":{"id":3,"purchase_no":"PUR-20260913-0003","party_id":13,"party_name":"TEST-SUPPLIER-002","subtotal":1590,"tax":42,"total":1632,"paid":500,"user_id":1,"created_at":"2026-09-13T17:
+[PASS] TC-PUR-008-out supplier2 outstanding = opening 250 + 1132
+       expected: 1382
+       actual:   1382
+[PASS] TC-SUP-pay supplier2 outstanding after 632 payment = 750
+       expected: 750
+       actual:   750
+[PASS] TC-PUR-010 zero quantity purchase rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid quantity for TEST Rice 1kg"}
+[PASS] TC-PUR-011 negative quantity purchase rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid quantity for TEST Rice 1kg"}
+[PASS] TC-PUR-011-stock rice stock after negative-qty purchase attempt (should stay 150)
+       expected: 150
+       actual:   150
+[PASS] TC-PUR-012 negative price purchase rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid purchase price for TEST Rice 1kg"}
+[PASS] TC-PUR-009 invalid quantity "abc" rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid quantity for TEST Rice 1kg"}
+[PASS] TC-PUR-paid-over paid > total on purchase (over-payment) rejected/capped
+       expected: cap or reject
+       actual:   {"ok":false,"error":"Paid amount cannot exceed purchase total"}
+[PASS] TC-PUR-paid-neg negative paid on purchase rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid paid amount"}
+[PASS] TC-PUR-unknown unknown item -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Unknown item in purchase"}
+[PASS] TC-PUR-badparty nonexistent supplier id accepted?
+       expected: reject
+       actual:   {"ok":false,"error":"Supplier not found"}
+[PASS] TC-PUR-custparty purchase from a CUSTOMER-type party accepted?
+       expected: reject
+       actual:   {"ok":false,"error":"Party is not a supplier"}
+[INFO] TC-PUR-priceupd purchase updated item purchase/sale/mrp
+       expected: info
+       actual:   {"pp":30,"sp":40,"mrp":45,"stock":30}
+[PASS] TC-POS-multi multi-item + bill discount totals (server)
+       expected: {"subtotal":172.97,"discount":10,"tax":15.23,"cgst":7.62,"sgst":7.61,"total":178.2}
+       actual:   {"subtotal":172.97,"discount":10,"tax":15.23,"cgst":7.62,"sgst":7.61,"total":178.2}
+       note: {"ok":true,"invoice":{"id":13,"invoice_no":"INV-20260913-0011","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":172.97,"discount":10,"tax":15.23,"cgst":7.62,"sgst":7.61,"igs
+[PASS] TC-POS-cart-vs-invoice cart preview totals == saved invoice totals
+       expected: {"subtotal":172.97,"tax":15.23,"total":178.2}
+       actual:   {"subtotal":172.97,"tax":15.23,"total":178.2}
+[PASS] TC-POS-lines line totals
+       expected: [105,47.2,36.93]
+       actual:   [105,47.2,36.93]
+[PASS] TC-CALC-invariant subtotal - discount + tax == total
+       expected: true
+       actual:   true
+[PASS] TC-CALC-gstsplit cgst + sgst == tax
+       expected: true
+       actual:   true
+[PASS] TC-POS-status-paid paid=null -> full paid
+       expected: {"paid":178.2,"status":"paid"}
+       actual:   {"paid":178.2,"status":"paid"}
+[PASS] TC-CALC-db DB stored total == API total
+       expected: 178.2
+       actual:   178.2
+[INFO] TC-CALC-lines-vs-total sum(line_total) vs invoice total (differs by bill discount 10 + tax proration)
+       expected: 178.2
+       actual:   189.13
+[PASS] TC-PRINT-pdf PDF generated for invoice
+       expected: true
+       actual:   true
+[PASS] TC-CALC-round-10x1@18 rounding 1 x 10 @ 18%
+       expected: {"subtotal":10,"tax":1.8,"total":11.8}
+       actual:   {"subtotal":10,"tax":1.8,"total":11.8}
+       note: {"ok":true,"invoice":{"id":14,"invoice_no":"INV-20260913-0012","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":10,"discoun
+[PASS] TC-CALC-round-10.5x1@18 rounding 1 x 10.5 @ 18%
+       expected: {"subtotal":10.5,"tax":1.89,"total":12.39}
+       actual:   {"subtotal":10.5,"tax":1.89,"total":12.39}
+       note: {"ok":true,"invoice":{"id":15,"invoice_no":"INV-20260913-0013","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":10.5,"disco
+[PASS] TC-CALC-round-10.99x1@18 rounding 1 x 10.99 @ 18%
+       expected: {"subtotal":10.99,"tax":1.98,"total":12.97}
+       actual:   {"subtotal":10.99,"tax":1.98,"total":12.97}
+       note: {"ok":true,"invoice":{"id":16,"invoice_no":"INV-20260913-0014","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":10.99,"disc
+[PASS] TC-CALC-round-0.01x1@18 rounding 1 x 0.01 @ 18%
+       expected: {"subtotal":0.01,"tax":0,"total":0.01}
+       actual:   {"subtotal":0.01,"tax":0,"total":0.01}
+       note: {"ok":true,"invoice":{"id":17,"invoice_no":"INV-20260913-0015","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":0.01,"disco
+[PASS] TC-CALC-round-0.01x3@5 rounding 3 x 0.01 @ 5%
+       expected: {"subtotal":0.03,"tax":0,"total":0.03}
+       actual:   {"subtotal":0.03,"tax":0,"total":0.03}
+       note: {"ok":true,"invoice":{"id":18,"invoice_no":"INV-20260913-0016","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":0.03,"disco
+[PASS] TC-CALC-round-99999.99x7@28 rounding 7 x 99999.99 @ 28%
+       expected: {"subtotal":699999.93,"tax":195999.98,"total":895999.91}
+       actual:   {"subtotal":699999.93,"tax":195999.98,"total":895999.91}
+       note: {"ok":true,"invoice":{"id":19,"invoice_no":"INV-20260913-0017","party_id":null,"party_name":"Walk-in Customer","party_phone":"","subtotal":699999.93,"
+[PASS] TC-POS-merge same item twice merges qty
+       expected: 3
+       actual:   3
+[PASS] TC-POS-qty change qty
+       expected: 5
+       actual:   5
+[PASS] TC-POS-negqty negative qty removes line (no negative sale)
+       expected: 0
+       actual:   0
+[PASS] TC-POS-addneg add_to_cart with negative quantity
+       expected: reject
+       actual:   no line
+[PASS] TC-POS-addneg2 add existing item with negative qty reduces below 1
+       expected: reject
+       actual:   1
+[PASS] TC-POS-negprice update_item price=-10
+       expected: reject
+       actual:   rejected: {"ok":false,"error":"Invalid price"}
+[INFO] TC-POS-price-below-cost cashier can override price to 1 (below cost 25) via update_item
+       expected: design: restrict?
+       actual:   1
+[PASS] TC-POS-disc-gt-line line discount 1000 > line value 30 -> taxable clamps to 0, total
+       expected: 0
+       actual:   0
+[PASS] TC-POS-billdisc-gt bill discount > subtotal clamps total to 0 (no negative)
+       expected: 0
+       actual:   0
+[PASS] TC-POS-remove remove item
+       expected: 0
+       actual:   0
+[PASS] TC-POS-empty sale with empty cart -> 400
+       expected: 400
+       actual:   400
+[PASS] TC-POS-notfound unknown code -> 404
+       expected: 404
+       actual:   404
+[PASS] TC-POS-nocode missing code -> 400
+       expected: 400
+       actual:   400
+[PASS] TC-PAY-over pays 100 for 60 -> paid capped to total, status paid (change = 40 client-side)
+       expected: {"paid":60,"status":"paid"}
+       actual:   {"paid":60,"status":"paid"}
+[PASS] TC-PAY-partial pays 25 of 60 -> partial
+       expected: {"paid":25,"status":"partial","total":60}
+       actual:   {"paid":25,"status":"partial","total":60}
+[PASS] TC-PAY-credit credit sale paid 0 -> unpaid
+       expected: {"paid":0,"status":"unpaid","method":"Credit"}
+       actual:   {"paid":0,"status":"unpaid","method":"Credit"}
+[PASS] TC-PAY-neg negative paid amount (-50) accepted?
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid paid amount"}
+[PASS] TC-PAY-nan paid="abc" -> stored as?
+       expected: reject or treat as full
+       actual:   {"ok":false,"error":"Invalid paid amount"}
+[PASS] TC-PAY-method arbitrary payment_method "Bitcoin" accepted?
+       expected: reject
+       actual:   undefined
+[PASS] TC-PAY-UPI UPI payment recorded
+       expected: {"m":"UPI","paid":30,"status":"paid"}
+       actual:   {"m":"UPI","paid":30,"status":"paid"}
+[PASS] TC-PAY-Card Card payment recorded
+       expected: {"m":"Card","paid":30,"status":"paid"}
+       actual:   {"m":"Card","paid":30,"status":"paid"}
+[PASS] TC-POS-walkin walk-in customer name
+       expected: Walk-in Customer
+       actual:   Walk-in Customer
+[PASS] TC-PAY-creditlimit credit sale of 1050 to customer with limit 500 (server-side enforcement)
+       expected: reject
+       actual:   {"ok":false,"error":"Credit limit exceeded for TEST-CUSTOMER-002"}
+[PASS] TC-PAY-collect collect remaining 35 -> paid
+       expected: {"paid":60,"status":"paid"}
+       actual:   {"paid":60,"status":"paid"}
+[PASS] TC-PAY-collect-over collecting 100 more on already-paid invoice: payments rows recorded
+       expected: [35]
+       actual:   [35]
+[PASS] TC-PAY-collect-neg negative due collection rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid payment amount"}
+[PASS] TC-PAY-collect-nan NaN due collection rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid payment amount"}
+[PASS] TC-CUST-outstanding cust1 outstanding after credit sale 60 (expect 60 if bad payments rejected)
+       expected: 60
+       actual:   60
+[PASS] TC-POS-insufficient sell 124 of stock 24
+       expected: reject
+       actual:   {"ok":false,"error":"Insufficient stock"}
+[PASS] TC-POS-hugeqty sell 1e9 units
+       expected: reject
+       actual:   {"ok":false,"error":"Insufficient stock"}
+[PASS] TC-DBL-001 triple-submit of one cart -> exactly 1 invoice
+       expected: 1
+       actual:   1
+       note: 200:INV-20260913-0024, 400:Cart is empty, 400:Cart is empty
+[PASS] TC-DBL-002 stock deducted once
+       expected: 59
+       actual:   59
+[PASS] TC-CONC-001 12 concurrent sales all succeed
+       expected: 12
+       actual:   12
+[PASS] TC-CONC-002 invoice numbers unique
+       expected: 12
+       actual:   12
+[PASS] TC-CONC-003 stock reduced by exactly 24
+       expected: 173
+       actual:   173
+[PASS] TC-INVNO-unique no duplicate invoice numbers in DB
+       expected: 0
+       actual:   0
+[PASS] TC-INVNO-seq today invoice numbers sequential w/o gaps
+       expected: true
+       actual:   true
+       note: first=1 last=36 n=36
+[PASS] TC-RECON-sale sale 30 x 50 @5%: taxable 1500 tax 75 total 1575
+       expected: {"subtotal":1500,"tax":75,"total":1575}
+       actual:   {"subtotal":1500,"tax":75,"total":1575}
+[PASS] TC-RETURN-002 partial return 5 of 30 -> refund 262.50 (incl. tax)
+       expected: 262.5
+       actual:   262.5
+       note: {"ok":true,"return":{"id":2,"invoice_id":39,"return_no":"RET-20260913-0002","total":262.5,"user_id":1,"created_at":"2026-09-13T17:44:08.839Z","reason"
+[PASS] TC-RETURN-credit-outstanding return on UNPAID credit invoice reduces customer outstanding by 262.50
+       expected: 1372.5
+       actual:   1372.5
+[INFO] TC-RETURN-invoice-state invoice after return: total/paid/status unchanged (no credit note)
+       expected: total reduced or credit recorded
+       actual:   {"total":1575,"paid":0,"status":"unpaid"}
+[PASS] TC-RETURN-005 return 26 more (>25 remaining) rejected
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Cannot return more than sold for TEST Recon Item"}
+[PASS] TC-RETURN-neg negative return qty
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid return quantity"}
+[PASS] TC-RETURN-badline foreign invoice_item_id rejected
+       expected: 400
+       actual:   400
+[PASS] TC-RETURN-empty empty return rejected
+       expected: 400
+       actual:   400
+[PASS] TC-PRET-001 purchase return 10 x (2100/50=42) = 420
+       expected: 420
+       actual:   420
+       note: {"ok":true,"return":{"id":2,"purchase_id":4,"return_no":"PRET-20260913-0002","party_id":12,"total":420,"reason":"TEST pret","user_id":1,"created_at":"
+[PASS] TC-PRET-outstanding supplier outstanding reduced by 420 after purchase return
+       expected: 3780
+       actual:   3780
+       note: before=4200
+[PASS] TC-PRET-over return 41 more (>40 remaining) rejected
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Cannot return more than purchased for TEST Recon Item"}
+[PASS] TC-ADJ-001 adjustment +3
+       expected: true
+       actual:   true
+       note: {"ok":true,"adjustment":{"id":2,"item_id":48,"type":"adjustment","old_qty":115,"change":3,"new_qty":118,"reason":"TEST +
+[PASS] TC-ADJ-002 damage -2
+       expected: true
+       actual:   true
+       note: {"ok":true,"adjustment":{"id":3,"item_id":48,"type":"damage","old_qty":118,"change":-2,"new_qty":116,"reason":"TEST dama
+[PASS] TC-ADJ-003 positive damage rejected
+       expected: 400
+       actual:   400
+[PASS] TC-ADJ-004 zero adjustment rejected
+       expected: 400
+       actual:   400
+[PASS] TC-ADJ-005 adjustment below zero rejected
+       expected: 400
+       actual:   400
+[PASS] TC-RECON-stock closing stock 100+50-30+5-10+3-2
+       expected: 116
+       actual:   116
+[PASS] TC-RECON-ledger stock ledger closing == 116 and opening == 100
+       expected: {"opening":100,"closing":116}
+       actual:   {"opening":100,"closing":116}
+       note: ["Purchase:50/0","Sale:0/30","Sales Return:5/0","Purchase Return:0/10","Adjustment:3/0","Damage:0/2"]
+[PASS] TC-RECON-currentstock current stock report == 116
+       expected: 116
+       actual:   116
+[PASS] TC-RECON-movement stock movement report row for recon item
+       expected: {"closing":116}
+       actual:   {"item":"TEST Recon Item","code":"TEST-RECON-001","category":"TEST-Grocery","opening":100,"purchased":50,"sales_return":5,"sold":30,"purchase_return":10,"adj_in":3,"adj_out":2,"closing":116}
+[PASS] TC-PL-netsales P&L net sales == DB (gross - disc - returns net)
+       expected: 702568.19
+       actual:   702568.19
+[PASS] TC-PL-cogs P&L COGS == DB (cogs - returned cost)
+       expected: 1965.01
+       actual:   1965.01
+[PASS] TC-PL-gp P&L gross profit == net sales - cogs
+       expected: 700603.18
+       actual:   700603.18
+[PASS] TC-PL-np P&L net profit == GP - expenses
+       expected: 700103.18
+       actual:   700103.18
+[PASS] TC-DASH-vs-PL dashboard business block == P&L summary
+       expected: {"ns":702568.19,"cogs":1965.01,"gp":700603.18,"np":700103.18,"ret":322.5}
+       actual:   {"ns":702568.19,"cogs":1965.01,"gp":700603.18,"np":700103.18,"ret":322.5}
+[PASS] TC-DASH-sales dashboard sales KPI == DB SUM(total) today
+       expected: 899046.05
+       actual:   899046.05
+[PASS] TC-DASH-bills dashboard bills KPI == DB count
+       expected: 36
+       actual:   36
+[PASS] TC-SALES-summary sales summary vs DB
+       expected: {"grand":899046.05,"bills":36}
+       actual:   {"grand":899046.05,"bills":36}
+       note: {"bills":36,"gross_sales":702888.19,"discounts":10,"tax":196167.86,"cgst":98083.94,"sgst":98083.92,"igst":0,"grand_total":899046.05,"paid":897351.05,"items_sold":96,"sales_returns":322.5,"returns_count":2,"cogs":1965.01,"net_sales":702568.19,"gross_profit":700603.18,"avg_bill":24973.5}
+[PASS] TC-OVERVIEW overview vs P&L
+       expected: {"ns":702568.19,"np":700103.18}
+       actual:   {"ns":702568.19,"np":700103.18}
+[INFO] TC-PL-recon-contrib recon item alone: net sales 1250, COGS 1000, GP 250 (manual)
+       expected: {"ns":1250,"cogs":1000,"gp":250}
+       actual:   see item-wise below
+[INFO] TC-ITEMWISE-recon item-wise row for recon item (qty sold 30, does it net returns?)
+       expected: qty=30 or 25; profit consistent
+       actual:   {"item_id":48,"item":"TEST Recon Item","code":"TEST-RECON-001","category":"TEST-Grocery","qty":25,"sales":1250,"cost":1000,"profit":250,"margin":20}
+[INFO] TC-REP-itemwise-sum item-wise sum(amount-ish) vs sales grand
+       expected: 899046.05
+       actual:   {"keys":["item_id","item","code","category","qty","sales","cost","profit","margin"],"sums":{"item_id":555,"qty":90,"sales":702578.19,"cost":1965.01,"profit":700613.18,"margin":857.42}}
+[INFO] TC-REP-catwise-sum category-wise sums
+       expected: consistent with item-wise
+       actual:   {"qty":96,"sales":702888.19,"cost":2207.01,"profit":700681.18,"margin":315.51}
+[PASS] TC-REP-daywise day-wise today total == DB grand
+       expected: 899046.05
+       actual:   899046.05
+       note: [{"day":"2026-09-13","bills":36,"items":96,"gross":702888.19,"discount":10,"total":899046.05,"tax":196167.86,"returns":322.5,"net_sales":702568.19,"profit":700603.18}]
+[INFO] TC-REP-paywise payment-wise sum == grand?
+       expected: 899046.05
+       actual:   {"rows":[{"method":"Cash","bills":31,"amount":897291.05,"percent":99.8},{"method":"Credit","bills":2,"amount":1635,"percent":0.18},{"method":"UPI","bills":2,"amount":90,"percent":0.01},{"method":"Card","bills":1,"amount":30,"percent":0}]}
+[PASS] TC-REP-billwise-count bill-wise non-cancelled row count == DB bills
+       expected: 36
+       actual:   36
+       note: rows=37 incl cancelled
+[PASS] TC-GST-sales gst sales summary tax == DB tax
+       expected: 196167.86
+       actual:   {"taxable":702878.19,"cgst":98083.94,"sgst":98083.92,"igst":0,"total_gst":196167.86,"invoice_value":899046.05,"bills":36}
+[PASS] TC-GST-ratewise rate-wise rows sum tax == DB tax
+       expected: 196167.86
+       actual:   {"sum":196167.85,"rows":[{"rate":0,"taxable":690,"cgst":0,"sgst":0,"igst":0,"total_tax":0},{"rate":5,"taxable":1624.25,"cgst":42.66,"sgst":42.65,"igst":0,"total_tax":85.3},{"rate":12,"taxable":294.82,"cgst":17.29,"sgst":17.29,"igst":0,"total_tax":34.58},{"rate":18,"taxable":241.19,"cgst":20.08,"sgst":20.07,"igst":0,"total_tax":40.15},{"rate":28,"taxable":700027.93,"cgst":98003.91,"sgst":98003.91,"igst":0,"total_tax":196007.82}]}
+[PASS] TC-CUST-ledger customer ledger closing == party outstanding
+       expected: 1372.5
+       actual:   {"closing":1372.5,"keys":["from","to","party","rows"]}
+[UNDEFINED] TC-CUST-outstanding-report outstanding report row == party outstanding
+       expected: 1372.5
+       actual:   undefined
+[PASS] TC-SUP-ledger supplier ledger closing == party outstanding
+       expected: 3780
+       actual:   {"closing":3780,"keys":["from","to","party","rows"]}
+[PASS] TC-CANCEL-001 cancel restores stock
+       expected: 173
+       actual:   173
+[PASS] TC-CANCEL-002 double cancel rejected
+       expected: 400
+       actual:   400
+[PASS] TC-CANCEL-003 return on CANCELLED invoice rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Cannot return items on a cancelled bill"}
+[PASS] TC-CANCEL-003-stock stock after return-on-cancelled
+       expected: 173
+       actual:   173
+[PASS] TC-CANCEL-004 payment on CANCELLED invoice rejected
+       expected: reject
+       actual:   {"ok":false,"error":"Cannot collect payment on a cancelled bill"}
+[PASS] TC-RETURN-billdisc return 1 of 2 on bill (60 - 20 disc = 40 paid): refund should be 20 (paid share), not 30
+       expected: 20
+       actual:   20
+[PASS] TC-RETURN-billdisc-full total refunded on full return vs total paid 40
+       expected: 40
+       actual:   40
+[PASS] TC-EXP-001 create expense
+       expected: 500
+       actual:   500
+[PASS] TC-EXP-zero zero expense
+       expected: reject
+       actual:   {"ok":false,"error":"Expense amount must be greater than 0"}
+[PASS] TC-EXP-neg negative expense
+       expected: reject
+       actual:   {"ok":false,"error":"Expense amount must be greater than 0"}
+[PASS] TC-EXP-nan NaN expense
+       expected: reject
+       actual:   {"ok":false,"error":"Expense amount must be greater than 0"}
+[PASS] TC-EXP-nocat missing category -> General
+       expected: General
+       actual:   General
+[PASS] TC-EXP-pl P&L expenses increased by 500
+       expected: 1000
+       actual:   1000
+[PASS] TC-EXP-dash dashboard expenses == P&L expenses
+       expected: 1000
+       actual:   1000
+[PASS] TC-EXP-del delete expense
+       expected: 200
+       actual:   200
+[PASS] TC-EXP-del404 delete nonexistent expense
+       expected: 404
+       actual:   404
+[PASS] TC-DATE-from>to from > to -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"From date cannot be after To date"}
+[PASS] TC-DATE-missing-to missing to -> defaults to today (200)
+       expected: 200
+       actual:   200
+       note: {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","summary":{"bills":37,"gross_sales":70294
+[PASS] TC-DATE-both-missing both missing -> today (200, not "required" error)
+       expected: 200
+       actual:   200
+       note: {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","summary":{"bills":37,"gross_sales":70294
+[PASS] TC-DATE-invalid invalid calendar dates 2026-02-30
+       expected: reject or normalize
+       actual:   200 {"ok":true,"report":{"from":"2026-02-30","to":"2026-02-31","summary":{"bills":0,"gross_sales":0,"discounts":0,"tax":0,"c
+[PASS] TC-DATE-garbage garbage dates -> falls back to today
+       expected: 200
+       actual:   200
+[PASS] TC-DATE-wide very wide range ok
+       expected: 200
+       actual:   200
+[PASS] TC-DATE-boundary today's multi invoice not in yesterday range
+       expected: false
+       actual:   false
+[PASS] TC-DATE-boundary2 today's multi invoice in today range
+       expected: true
+       actual:   true
+[PASS] TC-CASHIER-sale cashier can bill
+       expected: true
+       actual:   true
+       note: {"ok":true,"invoice":{"id":42,"invoice_no":"INV-20260913-0040","party_id":null,"party_name":"Walk-in
+[PASS] TC-CASHIER-report cashier-wise report has TEST-CASHIER with 1 bill of 30
+       expected: {"bills":1,"total":30}
+       actual:   {"cashier":"TEST-CASHIER","bills":1,"items":1,"sales":30,"discount":0,"returns":0,"net_sales":30,"avg_bill":30}
+[PASS] TC-CASHIER-cancel cashier cannot cancel bills
+       expected: 403
+       actual:   403
+[PASS] TC-CASHIER-return cashier cannot create returns
+       expected: 403
+       actual:   403
+[INFO] TC-CASHIER-discount cashier can apply unlimited bill discount (no approval)
+       expected: design: restrict
+       actual:   100
+[PASS] TC-EDIT-passcode edit with wrong passcode -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Incorrect passcode"}
+[PASS] TC-DEL-passcode delete with wrong passcode -> 401/429
+       expected: true
+       actual:   true
+       note: {"ok":false,"error":"Incorrect passcode"}
+[PASS] TC-DBI-negstock items with negative stock in DB
+       expected: []
+       actual:   []
+[PASS] TC-DBI-orphan-lines orphan invoice_items
+       expected: 0
+       actual:   0
+[INFO] TC-DBI-orphan-itemrefs invoice_items referencing deleted items (soft orphans)
+       expected: 0
+       actual:   1
+[PASS] TC-DBI-totals invoices where subtotal-discount+tax != total
+       expected: []
+       actual:   []
+[PASS] TC-DBI-paid invoices with paid<0 or paid>total
+       expected: []
+       actual:   []
+[INFO] TC-DBI-fk PRAGMA foreign_keys enabled at file level (sql.js default off)
+       expected: 1
+       actual:   0
+[PASS] TC-DBI-paynan payments with NULL/non-numeric amount
+       expected: []
+       actual:   []
+[PASS] TC-DBI-expnan expenses with NULL/non-numeric amount
+       expected: []
+       actual:   []
+
+===== SUMMARY =====
+total=150 pass=137 fail=0 other=13
+  purchases: pass=16 fail=0 other=1
+  suppliers: pass=2 fail=0 other=0
+  pos: pass=17 fail=0 other=1
+  calc: pass=9 fail=0 other=1
+  printing: pass=1 fail=0 other=0
+  payments: pass=13 fail=0 other=0
+  customers: pass=2 fail=0 other=1
+  stock: pass=7 fail=0 other=0
+  concurrency: pass=5 fail=0 other=0
+  invoice_no: pass=2 fail=0 other=0
+  reconciliation: pass=5 fail=0 other=1
+  returns: pass=8 fail=0 other=1
+  purchase_returns: pass=3 fail=0 other=0
+  reports: pass=8 fail=0 other=4
+  dashboard: pass=3 fail=0 other=0
+  gst: pass=2 fail=0 other=0
+  sales: pass=7 fail=0 other=0
+  expenses: pass=9 fail=0 other=0
+  dates: pass=8 fail=0 other=0
+  cashier: pass=4 fail=0 other=1
+  db_integrity: pass=6 fail=0 other=2
+
+FAILED:

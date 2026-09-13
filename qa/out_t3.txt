@@ -1,0 +1,435 @@
+[PASS] TC-SEC-anon-POST-/api/items anon POST /api/items -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-PUT-/api/items/1 anon PUT /api/items/1 -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-DELETE-/api/items/1 anon DELETE /api/items/1 -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/parties anon POST /api/parties -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/sale anon POST /api/sale -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/add_to_cart anon POST /add_to_cart -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/purchases anon POST /api/purchases -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/expenses anon POST /api/expenses -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/settings anon POST /api/settings -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/users anon POST /api/users -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/invoices/1/cancel anon POST /api/invoices/1/cancel -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/invoices/1/return anon POST /api/invoices/1/return -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-PUT-/api/invoices/1 anon PUT /api/invoices/1 -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-DELETE-/api/invoices/1 anon DELETE /api/invoices/1 -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/stock-adjustments anon POST /api/stock-adjustments -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/drive/restore anon POST /api/drive/restore -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-GET-/api/reports/audit anon GET /api/reports/audit -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-GET-/upi_qr?am=1 anon GET /upi_qr?am=1 -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-GET-/api/accounts anon GET /api/accounts -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-anon-POST-/api/estimates anon POST /api/estimates -> 401
+       expected: 401
+       actual:   401
+       note: {"ok":false,"error":"Login required"}
+[PASS] TC-SEC-cashier-POST-/api/purchases cashier POST /api/purchases -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-POST-/api/stock-adjustments cashier POST /api/stock-adjustments -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-GET-/api/purchase-returns cashier GET /api/purchase-returns -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-GET-/api/stock-adjustments cashier GET /api/stock-adjustments -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-GET-/api/reports/audit cashier GET /api/reports/audit -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-GET-/api/drive/status cashier GET /api/drive/status -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-POST-/api/drive/restore cashier POST /api/drive/restore -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-DELETE-/api/users/1 cashier DELETE /api/users/1 -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-DELETE-/api/expenses/1 cashier DELETE /api/expenses/1 -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-DELETE-/api/parties/1 cashier DELETE /api/parties/1 -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-PUT-/api/invoices/1 cashier PUT /api/invoices/1 -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-DELETE-/api/invoices/1 cashier DELETE /api/invoices/1 -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-POST-/api/accounts cashier POST /api/accounts -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[PASS] TC-SEC-cashier-POST-/api/accounts/1/transactions cashier POST /api/accounts/1/transactions -> 403
+       expected: 403
+       actual:   403
+       note: {"ok":false,"error":"Not allowed for this role"}
+[INFO] TC-SEC-cashier-estimates cashier can read estimates
+       expected: 200
+       actual:   200
+[PASS] TC-SEC-cashier-estimates-post cashier cannot create estimates
+       expected: 403
+       actual:   403
+[INFO] TC-SEC-cashier-acct-tx cashier can read account transactions
+       expected: design
+       actual:   200
+[PASS] TC-SEC-cashier-credit-check cashier can query credit check (needed for POS)
+       expected: 200
+       actual:   200
+[PASS] TC-SEC-held-own held bills scoped to user
+       expected: 200
+       actual:   200
+[PASS] TC-SEC-IDOR-held cashier can recall ANOTHER user's held bill by id (IDOR)
+       expected: reject
+       actual:   400
+[PASS] TC-SEC-search-' OR '1'='1 items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-' OR '1'='1 bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-search-"; DROP TABL items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-"; DROP TABL bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-search-<script>aler items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-<script>aler bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-search-% items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-% bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-search-_ items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-_ bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-search-  items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-  bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[{"id":42,"inv
+[PASS] TC-SEC-search-AAAAAAAAAAAA items search with hostile input no 500
+       expected: true
+       actual:   true
+       note: status=200
+[PASS] TC-SEC-report-q-AAAAAAAAAAAA bill-wise q hostile no 500
+       expected: true
+       actual:   true
+       note: status=200 {"ok":true,"report":{"from":"2026-09-13","to":"2026-09-13","rows":[],"total":0,"
+[PASS] TC-SEC-tables-intact items table still exists
+       expected: true
+       actual:   true
+[PASS] TC-API-badjson malformed JSON body -> 400 JSON error (not HTML stack)
+       expected: 400 json
+       actual:   400 {"ok":false,"error":"Invalid request body"}
+[PASS] TC-API-ledger-nan ledger with item_id=abc
+       expected: 400
+       actual:   400 {"ok":false,"error":"Item not found"}
+[PASS] TC-API-ledger-missing ledger with no item_id
+       expected: 400
+       actual:   400 {"ok":false,"error":"Item not found"}
+[PASS] TC-API-ledger-404 ledger for nonexistent party -> 400/404
+       expected: true
+       actual:   true
+[PASS] TC-API-ledger-type customer ledger for a supplier id -> error
+       expected: true
+       actual:   true
+[PASS] TC-API-paging bad paging params clamp
+       expected: 200
+       actual:   200
+[INFO] TC-API-paging-max per_page=100000 accepted (DoS surface)
+       expected: cap ~500
+       actual:   1000
+[PASS] TC-API-unknown-report unknown report -> 404
+       expected: 404
+       actual:   404
+[PASS] TC-API-inv-nan invoice id abc -> 404
+       expected: 404
+       actual:   404
+[PASS] TC-API-inv-404 nonexistent invoice -> 404
+       expected: 404
+       actual:   404
+[PASS] TC-API-pay-404 payment on nonexistent invoice -> 400/404
+       expected: true
+       actual:   true
+[PASS] TC-API-partypay-404 payment for nonexistent party -> 400/404
+       expected: true
+       actual:   true
+[PASS] TC-API-partypay-neg negative party payment accepted?
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid payment amount"}
+[PASS] TC-API-partypay-nan NaN party payment
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid payment amount"}
+[PASS] TC-API-partypay-missing missing amount party payment
+       expected: reject
+       actual:   {"ok":false,"error":"Invalid payment amount"}
+[INFO] TC-API-partypay-note party payment with note "Invoice ..." is EXCLUDED from outstanding by design of NOT LIKE filter
+       expected: should still count
+       actual:   accepted; verify via outstanding below
+[PASS] TC-PAY-note-exclusion a standalone receipt whose note starts with "Invoice " does not reduce outstanding
+       expected: outstanding -10
+       actual:   1362.5 -> 1352.5
+[PASS] TC-API-item-put-nan PUT /api/items/abc
+       expected: 404
+       actual:   404 {"ok":false,"error":"Item not found"}
+[PASS] TC-API-item-put-404 PUT nonexistent item
+       expected: 404
+       actual:   404 {"ok":false,"error":"Item not found"}
+[PASS] TC-API-item-types wrong data types in item
+       expected: 400
+       actual:   400 {"ok":false,"error":"Invalid purchase price"}
+[PASS] TC-API-item-inf Infinity sale price (JSON nullifies to absent -> finite fallback, no Infinity stored)
+       expected: finite or reject
+       actual:   200 {"ok":true,"item":{"id":49,"code":"TEST-INF","name":"TEST inf","category":"General","hsn":"","gst_pe
+[PASS] TC-API-adj-inf adjustment infinity rejected
+       expected: 400
+       actual:   400
+[INFO] TC-API-adj-tiny adjustment 1e-7 accepted
+       expected: reject/round
+       actual:   200
+[INFO] TC-SEC-settings-paths admin settings exposes data_dir/db_path (filesystem paths)
+       expected: ok for local desktop app
+       actual:   {"data_dir":"qa/data-run","db_path":"qa\\data-run\\pos.db"}
+[PASS] TC-SEC-settings-hash settings never returns bill_passcode_hash
+       expected: false
+       actual:   false
+[PASS] TC-SEC-users-hash user list has no password_hash
+       expected: false
+       actual:   false
+[PASS] TC-SEC-audit audit report accessible; check old/new values don't include hashes
+       expected: false
+       actual:   false
+[PASS] TC-SEC-passcode-limit passcode limiter locks after 5 failures
+       expected: 401 x5 then 429
+       actual:   401,401,401,429,429,429,429
+[INFO] TC-SEC-login-limit login limiter present (10/15min per IP) - code-verified, not exercised to avoid locking test session
+       expected: present
+       actual:   present
+[INFO] TC-SET-validation settings accept arbitrary gst_type/default_gst/printer width
+       expected: validate
+       actual:   {"gst_type":"martian","default_gst":"-5","w":"abc"}
+[PASS] TC-SET-passcode-short passcode too short rejected
+       expected: 400
+       actual:   400
+[PASS] TC-SET-passcode-hash-direct cannot set hash directly (not in allowlist)
+       expected: true
+       actual:   true
+[PASS] TC-GST-igst inter-state: igst = tax, cgst=sgst=0
+       expected: {"igst":7.84,"cgst":0,"sgst":0,"total":35.84}
+       actual:   {"igst":7.84,"cgst":0,"sgst":0,"total":35.84}
+       note: {"ok":true,"invoice":{"id":43,"invoice_no":"INV-20260913-0041","party_id":null,"party_name":"","party_phone":"","subtota
+[PASS] TC-GST-zero zero-tax item
+       expected: {"tax":0,"total":30}
+       actual:   {"tax":0,"total":30}
+[INFO] TC-GST-hsn HSN report rows (blank HSN grouping?)
+       expected: rows
+       actual:   [{"hsn":"-","rate":0,"qty":20,"taxable":790,"cgst":0,"sgst":0,"igst":0,"total_tax":0},{"hsn":"-","rate":5,"qty":35,"taxable":1530.03,"cgst":38.25,"sgst":38.25,"igst":0,"total_tax":76.5},{"hsn":"-","rate":12,"qty":27,"taxable":294.82,"cgst":17.29,"sgst":17.29,"igst":0,"total_tax":34.58}]
+[INFO] TC-GST-returns GST returns summary
+       expected: rows
+       actual:   {"sales_returns":4,"sales_return_value":362.5,"credit_notes":0,"credit_note_value":0,"cgst":6.25,"sgst":6.25,"igst":0,"total_gst_reversed":12.5}
+[PASS] TC-EDIT-001 edit bill: qty 2->5 + add milk
+       expected: true
+       actual:   true
+       note: {"ok":true,"invoice":{"id":45,"invoice_no":"INV-20260913-0043","party_id":null,"party_name":"","party_phone":"","subtotal":280,"discount":0,"tax":12.5,"cgst":6.25,"sgst":6.25,"igst":0,"total":292.5,"p
+[PASS] TC-EDIT-stock edit adjusts stock by delta (-3)
+       expected: 143.0000001
+       actual:   143.0000001
+[INFO] TC-EDIT-paid edit: paid kept at old total, status becomes partial (was fully paid)
+       expected: explicit
+       actual:   {"total":292.5,"paid":105,"status":"partial"}
+[PASS] TC-EDIT-negprice edit with negative price rejected
+       expected: 400
+       actual:   400
+[INFO] TC-EDIT-zeroprice edit with price 0 accepted (free goods)
+       expected: design
+       actual:   200
+[PASS] TC-EDIT-overpaid edit caps paid at total
+       expected: true
+       actual:   true
+       note: {"ok":true,"invoice":{"id":45,"invoice_no":"INV-20260913-0043","party_id":null,"party_name":"","party_phone":"","subtota
+[PASS] TC-EDIT-negpaid edit with paid=-5
+       expected: reject
+       actual:   undefined
+[PASS] TC-DEL-001 delete bill with passcode
+       expected: 200
+       actual:   200
+       note: {"ok":true}
+[PASS] TC-DEL-stock delete restores stock (+1)
+       expected: 148.0000001
+       actual:   148.0000001
+[PASS] TC-DEL-db invoice rows removed
+       expected: 0
+       actual:   0
+[PASS] TC-INVNO-reuse after deleting latest bill, next bill reuses its number
+       expected: never reuse (audit log references it)
+       actual:   INV-20260913-0043 -> INV-20260913-0044
+[INFO] TC-INVNO-audit audit rows referencing INV-20260913-0043 (now ambiguous if reused)
+       expected: n
+       actual:   5
+[PASS] TC-EST-001 create estimate
+       expected: true
+       actual:   true
+       note: {"ok":true,"estimate":{"id":1,"estimate_no":"EST-20260913-0001","party_id":null,"party_name":"TEST est","party_phone":"","subtotal":60,"discount":0,"t
+[PASS] TC-EST-convert convert estimate to invoice
+       expected: ok
+       actual:   ok INV-20260913-0045
+[PASS] TC-EST-convert-stock stock after conversion
+       expected: 56
+       actual:   56
+[PASS] TC-EST-status estimate status after convert
+       expected: converted
+       actual:   converted
+[PASS] TC-EST-cogs converted invoice line carries purchase_price (COGS)
+       expected: 25
+       actual:   25
+[PASS] TC-PO-001 create PO
+       expected: true
+       actual:   true
+       note: {"ok":true,"purchase_order":{"id":1,"order_no":"PO-20260913-0001","party_id":12,"party_name":"TEST-SUPPLIER-001","subtotal":125,"tax":0,"total":125,"e
+[PASS] TC-PO-convert convert PO to purchase
+       expected: ok
+       actual:   ok
+[PASS] TC-CASH-open open cash session
+       expected: true
+       actual:   true
+       note: {"ok":true,"session":{"id":2,"user_id":4,"opened_at":"2026-09-13T17:44:22.585Z","closed_at":null,"opening_cash":1000,"cl
+[PASS] TC-CASH-open-twice second open rejected
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"You already have an open cash session"}
+[PASS] TC-CASH-close close session: expected cash should be 1000+30 (only cash sales of THIS user in session)
+       expected: 1030
+       actual:   1030
+[PASS] TC-HOLD-recall recall held bill restores qty 3
+       expected: 3
+       actual:   3
+[PASS] TC-HOLD-recall-twice recalling same held bill twice
+       expected: reject (already recalled)
+       actual:   400
+[PASS] TC-PARTY-del-history delete customer with outstanding invoices/payments allowed?
+       expected: block
+       actual:   {"ok":false,"error":"Party has transaction history and cannot be deleted"}
+[INFO] TC-PARTY-del-orphans invoices referencing deleted party
+       expected: 0
+       actual:   0
+[INFO] TC-PARTY-del-outstanding customer outstanding total after deleting a debtor (money silently vanished?)
+       expected: unchanged
+       actual:   {"total_outstanding":1652.5}
+[PASS] TC-USER-self-delete admin can delete own account while logged in
+       expected: block
+       actual:   400
+[FAIL] TC-USER-self-delete-session session still valid after own account deleted
+       expected: invalid
+       actual:   TEST-ADMIN
+
+===== SUMMARY =====
+total=120 pass=104 fail=1 other=15
+  security: pass=57 fail=0 other=4
+  api: pass=19 fail=0 other=3
+  payments: pass=1 fail=0 other=0
+  settings: pass=2 fail=0 other=1
+  gst: pass=2 fail=0 other=2
+  sales: pass=8 fail=0 other=2
+  invoice_no: pass=1 fail=0 other=1
+  estimates: pass=5 fail=0 other=0
+  purchase_orders: pass=2 fail=0 other=0
+  cash: pass=3 fail=0 other=0
+  pos: pass=2 fail=0 other=0
+  parties: pass=1 fail=0 other=2
+  users: pass=1 fail=1 other=0
+
+FAILED:
+  TC-USER-self-delete-session session still valid after own account deleted | expected invalid got TEST-ADMIN

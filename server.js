@@ -2,8 +2,10 @@ const express = require('express');
 const helmet = require('helmet');
 const session = require('express-session');
 const path = require('path');
-const { getResourceDir } = require('./lib/paths');
-const { initDatabase } = require('./lib/database');
+const fs = require('fs');
+const crypto = require('crypto');
+const { getResourceDir, getDataDir } = require('./lib/paths');
+const { initDatabase, flushSave } = require('./lib/database');
 const { seedItemsFromJson } = require('./lib/items');
 
 // Import business logic modules
@@ -12,14 +14,15 @@ const { getSetting, getSettings, setSettings } = require('./lib/settings');
 const { listItems, getItemByCode, getItem, categories, saveItem, deleteItem } = require('./lib/items');
 const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCreditLimit } = require('./lib/parties');
 const { calculateCartTotals } = require('./lib/cart');
-const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice } = require('./lib/invoices');
+const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice, updateInvoice, deleteInvoice } = require('./lib/invoices');
+const { verifyBillPasscode } = require('./lib/passcode');
 const { completePurchase, listPurchases, getPurchase } = require('./lib/purchases');
 const { createPurchaseReturn, listPurchaseReturns } = require('./lib/purchaseReturns');
 const { createStockAdjustment, listStockAdjustments } = require('./lib/stockAdjustments');
 const { openSession, closeSession, currentSession } = require('./lib/cashSessions');
 const { logAudit } = require('./lib/audit');
 const { parseRange } = require('./lib/reportUtils');
-const { addExpense, listExpenses, deleteExpense } = require('./lib/expenses');
+const { addExpense, listExpenses, getExpense, deleteExpense } = require('./lib/expenses');
 const { holdBill, listHeldBills, recallHeldBill } = require('./lib/heldBills');
 const reportLib = require('./lib/reports');
 const { dashboard, reports } = reportLib;
@@ -45,11 +48,38 @@ app.use(helmet({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+function resolveSessionSecret() {
+  if (process.env.SESSION_SECRET) {
+    return process.env.SESSION_SECRET;
+  }
+  if (process.env.FLASK_SECRET_KEY) {
+    return process.env.FLASK_SECRET_KEY;
+  }
+
+  const secretPath = path.join(getDataDir(), 'session-secret.txt');
+  try {
+    if (fs.existsSync(secretPath)) {
+      const existing = fs.readFileSync(secretPath, 'utf8').trim();
+      if (existing) {
+        return existing;
+      }
+    }
+    const generated = crypto.randomBytes(32).toString('hex');
+    fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+    fs.writeFileSync(secretPath, generated, { mode: 0o600 });
+    console.log('Using auto-generated session secret from data dir; set SESSION_SECRET for production.');
+    return generated;
+  } catch (error) {
+    console.log('Using auto-generated session secret from data dir; set SESSION_SECRET for production.');
+    return crypto.randomBytes(32).toString('hex');
+  }
+}
+
 app.use(session({
-  secret: process.env.FLASK_SECRET_KEY || 'dev-secret-key-change-me',
+  secret: resolveSessionSecret(),
   resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false } // Set to true in production with HTTPS
+  saveUninitialized: false,
+  cookie: { secure: process.env.SESSION_SECURE_COOKIE === '1' } // Set SESSION_SECURE_COOKIE=1 in production with HTTPS
 }));
 
 // Serve static files from templates directory
@@ -64,12 +94,32 @@ function jsonError(message, status = 400) {
   return { ok: false, error: message };
 }
 
+// sql.js throws plain non-Error objects on bind/constraint failures, so
+// error.message is not reliable - always surface a string.
+function errMsg(e) {
+  return (e && e.message) || String(e);
+}
+
+// Settings safe to send to the client: never expose the passcode hash,
+// only whether one is configured.
+function publicSettings(settings) {
+  const { bill_passcode_hash, ...rest } = { ...(settings || getSettings()) };
+  rest.bill_passcode_set = !!bill_passcode_hash;
+  return rest;
+}
+
 function currentUser(req) {
   return req.session.user || null;
 }
 
 function loginRequired(req, res, next) {
-  if (!currentUser(req)) {
+  const user = currentUser(req);
+  if (!user) {
+    return res.status(401).json(jsonError('Login required'));
+  }
+  // Drop sessions whose user no longer exists (deleted account)
+  if (!getUserById(user.id)) {
+    req.session.destroy();
     return res.status(401).json(jsonError('Login required'));
   }
   next();
@@ -79,6 +129,10 @@ function requireRole(minRole) {
   return (req, res, next) => {
     const user = currentUser(req);
     if (!user) {
+      return res.status(401).json(jsonError('Login required'));
+    }
+    if (!getUserById(user.id)) {
+      req.session.destroy();
       return res.status(401).json(jsonError('Login required'));
     }
     const userLevel = ROLE_LEVEL[user.role] || 0;
@@ -166,27 +220,128 @@ app.get('/', (req, res) => {
 app.get('/api/me', (req, res) => {
   const user = currentUser(req);
   if (!user) {
-    return res.json({ ok: true, user: null, settings: getSettings() });
+    return res.json({ ok: true, user: null, settings: publicSettings() });
   }
   res.json({
     ok: true,
     user: user,
-    settings: getSettings(),
+    must_change_password: getSetting('must_change_password', '0') === '1' && user.role === 'admin',
+    settings: publicSettings(),
     drive: driveStatus()
   });
 });
 
+// Failed-attempt rate limiting. Login: 10 failures / 15 min per IP.
+// Bill passcode: 5 failures / 10 min per IP+user.
+function makeAttemptLimiter(maxFailures, windowMs) {
+  const attempts = new Map();
+
+  const prune = (now) => {
+    for (const [key, entry] of attempts) {
+      if (now - entry.firstAt > windowMs && (!entry.lockedUntil || now > entry.lockedUntil)) {
+        attempts.delete(key);
+      }
+    }
+  };
+
+  return {
+    // Returns minutes remaining if locked, else 0
+    lockedFor(key) {
+      const now = Date.now();
+      prune(now);
+      const entry = attempts.get(key);
+      if (entry && entry.lockedUntil && now < entry.lockedUntil) {
+        return Math.ceil((entry.lockedUntil - now) / 60000);
+      }
+      return 0;
+    },
+    // Records a failure; returns lock minutes if this failure triggered a lock, else 0
+    fail(key) {
+      const now = Date.now();
+      prune(now);
+      const entry = attempts.get(key);
+      if (!entry || now - entry.firstAt > windowMs) {
+        attempts.set(key, { count: 1, firstAt: now, lockedUntil: 0 });
+      } else {
+        entry.count += 1;
+        if (entry.count > maxFailures) {
+          entry.lockedUntil = entry.firstAt + windowMs;
+        }
+      }
+      const record = attempts.get(key);
+      if (record.lockedUntil && now < record.lockedUntil) {
+        return Math.ceil((record.lockedUntil - now) / 60000);
+      }
+      return 0;
+    },
+    reset(key) {
+      attempts.delete(key);
+    }
+  };
+}
+
+const loginLimiter = makeAttemptLimiter(10, 15 * 60 * 1000);
+const passcodeLimiter = makeAttemptLimiter(5, 10 * 60 * 1000);
+
+// Verifies the bill passcode for edit/delete. Responds and returns false on failure.
+function checkBillPasscode(req, res, reference) {
+  const result = verifyBillPasscode((req.body || {}).passcode);
+  if (!result.configured) {
+    res.status(403).json(jsonError('Bill passcode not configured. Set it in Settings.'));
+    return false;
+  }
+  const user = currentUser(req) || {};
+  const key = `${req.ip}:${user.id || ''}`;
+  const locked = passcodeLimiter.lockedFor(key);
+  if (locked) {
+    res.status(429).json(jsonError(`Too many passcode attempts. Try again in ${locked} minutes.`));
+    return false;
+  }
+  if (!result.ok) {
+    audit(req, 'passcode_failed', 'sales', reference || '', 'Incorrect bill passcode entered');
+    const minutes = passcodeLimiter.fail(key);
+    if (minutes) {
+      res.status(429).json(jsonError(`Too many passcode attempts. Try again in ${minutes} minutes.`));
+    } else {
+      res.status(401).json(jsonError('Incorrect passcode'));
+    }
+    return false;
+  }
+  passcodeLimiter.reset(key);
+  return true;
+}
+
 // Authentication
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
+  const username = String((req.body || {}).username || '');
+  const password = String((req.body || {}).password || '');
+  const ip = req.ip;
+
+  const locked = loginLimiter.lockedFor(ip);
+  if (locked) {
+    return res.status(429).json(jsonError(`Too many login attempts. Try again in ${locked} minutes.`));
+  }
+
   const user = authenticate(username, password);
   if (!user) {
+    const minutes = loginLimiter.fail(ip);
+    logAudit({ userId: null, username: username || '', action: 'login_failed', module: 'auth', description: `Failed login attempt for username '${username || ''}'` });
+    if (minutes) {
+      return res.status(429).json(jsonError(`Too many login attempts. Try again in ${minutes} minutes.`));
+    }
     return res.status(401).json(jsonError('Invalid username or password'));
   }
+
+  loginLimiter.reset(ip);
   req.session.user = user;
   req.session.carts = { default: { items: {}, billDiscount: 0, partyId: null, partyName: '', partyPhone: '' } };
   logAudit({ userId: user.id, username: user.username, action: 'login', module: 'auth', description: 'User logged in' });
-  res.json({ ok: true, user: user, settings: getSettings() });
+  res.json({
+    ok: true,
+    user: user,
+    must_change_password: getSetting('must_change_password', '0') === '1' && user.role === 'admin',
+    settings: publicSettings()
+  });
 });
 
 app.post('/api/logout', (req, res) => {
@@ -202,7 +357,7 @@ app.get('/api/dashboard', loginRequired, (req, res) => {
     const trend = ['7', '30', 'month'].includes(req.query.trend) ? req.query.trend : '7';
     res.json({ ok: true, dashboard: dashboard(range, trend) });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -223,25 +378,37 @@ app.post('/api/items', requireRole('manager'), (req, res) => {
     audit(req, 'create', 'items', item.code, `Item created: ${item.name}`, null, item);
     res.json({ ok: true, item: item });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
 app.put('/api/items/:id', requireRole('manager'), (req, res) => {
   try {
-    const item = saveItem(req.body, parseInt(req.params.id));
+    const itemId = parseInt(req.params.id);
+    if (isNaN(itemId) || !getItem(itemId)) {
+      return res.status(404).json(jsonError('Item not found'));
+    }
+    const item = saveItem(req.body, itemId);
     audit(req, 'update', 'items', item.code, `Item updated: ${item.name}`, null, item);
     res.json({ ok: true, item: item });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
 app.delete('/api/items/:id', requireRole('manager'), (req, res) => {
-  const item = getItem(parseInt(req.params.id));
-  deleteItem(parseInt(req.params.id));
-  audit(req, 'delete', 'items', item ? item.code : req.params.id, `Item deleted: ${item ? item.name : req.params.id}`, item, null);
-  res.json({ ok: true });
+  try {
+    const itemId = parseInt(req.params.id);
+    const item = isNaN(itemId) ? null : getItem(itemId);
+    if (!item) {
+      return res.status(404).json(jsonError('Item not found'));
+    }
+    deleteItem(itemId);
+    audit(req, 'delete', 'items', item.code, `Item deleted: ${item.name}`, item, null);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
 });
 
 // Parties
@@ -256,25 +423,37 @@ app.post('/api/parties', requireRole('manager'), (req, res) => {
     audit(req, 'create', 'parties', party.id, `Party created: ${party.name} (${party.type})`);
     res.json({ ok: true, party: party });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
 app.put('/api/parties/:id', requireRole('manager'), (req, res) => {
   try {
-    const party = saveParty(req.body, parseInt(req.params.id));
+    const partyId = parseInt(req.params.id);
+    if (isNaN(partyId) || !getParty(partyId)) {
+      return res.status(404).json(jsonError('Party not found'));
+    }
+    const party = saveParty(req.body, partyId);
     audit(req, 'update', 'parties', party.id, `Party updated: ${party.name}`);
     res.json({ ok: true, party: party });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
 app.delete('/api/parties/:id', requireRole('manager'), (req, res) => {
-  const party = getParty(parseInt(req.params.id));
-  deleteParty(parseInt(req.params.id));
-  audit(req, 'delete', 'parties', req.params.id, `Party deleted: ${party ? party.name : req.params.id}`, party, null);
-  res.json({ ok: true });
+  try {
+    const partyId = parseInt(req.params.id);
+    const party = isNaN(partyId) ? null : getParty(partyId);
+    if (!party) {
+      return res.status(404).json(jsonError('Party not found'));
+    }
+    deleteParty(partyId);
+    audit(req, 'delete', 'parties', req.params.id, `Party deleted: ${party.name}`, party, null);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
 });
 
 app.post('/api/parties/:id/payment', requireRole('manager'), (req, res) => {
@@ -290,7 +469,7 @@ app.post('/api/parties/:id/payment', requireRole('manager'), (req, res) => {
     audit(req, 'payment', 'parties', party ? party.name : req.params.id, `Payment ${req.body.method || 'Cash'} ₹${req.body.amount}`);
     res.json({ ok: true, payment: payment, party: party });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -300,7 +479,7 @@ app.get('/api/parties/:id/credit-check', loginRequired, (req, res) => {
     const creditCheck = checkCreditLimit(parseInt(req.params.id), additionalAmount);
     res.json({ ok: true, credit_check: creditCheck });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -418,7 +597,16 @@ app.post('/add_to_cart', loginRequired, (req, res) => {
   }
 
   const cart = getCart(req);
-  const qty = parseFloat(quantity) || 1;
+  const qty = parseFloat(quantity);
+  if (!isFinite(qty) || qty <= 0) {
+    return res.status(400).json(jsonError('Invalid quantity'));
+  }
+
+  const existingQty = cart[code] ? parseFloat(cart[code].quantity) || 0 : 0;
+  const stock = parseFloat(product.stock);
+  if (isFinite(stock) && stock >= 0 && existingQty + qty > stock + 1e-9) {
+    return res.status(400).json(jsonError('Insufficient stock'));
+  }
 
   if (cart[code]) {
     cart[code].quantity = parseFloat(cart[code].quantity) + qty;
@@ -429,7 +617,7 @@ app.post('/add_to_cart', loginRequired, (req, res) => {
       price: parseFloat(product.sale_price),
       mrp: parseFloat(product.mrp) || parseFloat(product.sale_price) || 0,
       category: product.category || 'General',
-      quantity: Math.max(0.001, qty),
+      quantity: qty,
       gst_percent: parseFloat(product.gst_percent) || 0,
       discount: 0,
       purchase_price: parseFloat(product.purchase_price) || 0,
@@ -451,7 +639,10 @@ app.post('/update_item', loginRequired, (req, res) => {
   }
 
   if (quantity !== undefined) {
-    const qty = parseFloat(quantity) || 0;
+    const qty = parseFloat(quantity);
+    if (!isFinite(qty)) {
+      return res.status(400).json(jsonError('Invalid quantity'));
+    }
     if (qty <= 0) {
       delete cart[code];
     } else {
@@ -460,11 +651,25 @@ app.post('/update_item', loginRequired, (req, res) => {
   }
 
   if (discount !== undefined) {
-    cart[code].discount = Math.max(0, parseFloat(discount) || 0);
+    const disc = parseFloat(discount);
+    if (!isFinite(disc) || disc < 0) {
+      return res.status(400).json(jsonError('Invalid discount'));
+    }
+    if (cart[code]) {
+      cart[code].discount = disc;
+    }
   }
 
-  if (price !== undefined) {
-    cart[code].price = parseFloat(price) || cart[code].price;
+  if (price !== undefined && cart[code]) {
+    const newPrice = parseFloat(price);
+    if (!isFinite(newPrice) || newPrice <= 0) {
+      return res.status(400).json(jsonError('Invalid price'));
+    }
+    const lineMrp = parseFloat(cart[code].mrp) || 0;
+    if (lineMrp > 0 && newPrice > lineMrp) {
+      return res.status(400).json(jsonError('Price cannot be greater than MRP'));
+    }
+    cart[code].price = newPrice;
   }
 
   saveCart(req, cart);
@@ -486,7 +691,11 @@ app.post('/api/cart/clear', loginRequired, (req, res) => {
 });
 
 app.post('/api/cart/discount', loginRequired, (req, res) => {
-  getCartState(req).state.billDiscount = Math.max(0, parseFloat(req.body.discount) || 0);
+  const disc = parseFloat(req.body.discount);
+  if (!isFinite(disc) || disc < 0) {
+    return res.status(400).json(jsonError('Invalid discount'));
+  }
+  getCartState(req).state.billDiscount = disc;
   res.json({ ok: true, cart: cartPayload(req) });
 });
 
@@ -536,14 +745,14 @@ app.get('/api/cart/held', loginRequired, (req, res) => {
 
 app.post('/api/cart/recall/:id', loginRequired, (req, res) => {
   try {
-    const held = recallHeldBill(parseInt(req.params.id));
+    const held = recallHeldBill(parseInt(req.params.id), currentUser(req));
     const payload = held.cart;
     const cartState = getCartState(req).state;
     cartState.items = payload.items || payload;
     cartState.billDiscount = payload.discount || 0;
     res.json({ ok: true, cart: cartPayload(req) });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -615,7 +824,7 @@ app.post('/api/sale', loginRequired, async (req, res) => {
 
     res.json({ ok: true, invoice: invoice, whatsapp: whatsapp, cart: cartPayload(req) });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -661,7 +870,7 @@ app.post('/send_bill', loginRequired, async (req, res) => {
       return res.status(500).json(jsonError(result.error || 'Failed to send message'));
     }
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -689,7 +898,7 @@ app.post('/api/invoices/:id/payment', loginRequired, (req, res) => {
     audit(req, 'payment', 'sales', invoice.invoice_no, `Due collected: ₹${req.body.amount} (${req.body.method || 'Cash'})`);
     res.json({ ok: true, invoice: invoice });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -699,7 +908,7 @@ app.post('/api/invoices/:id/return', requireRole('manager'), (req, res) => {
     audit(req, 'return', 'sales', returnRecord.return_no, `Sale return on invoice ${req.params.id}: ₹${returnRecord.total}`);
     res.json({ ok: true, return: returnRecord });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -709,7 +918,42 @@ app.post('/api/invoices/:id/cancel', requireRole('manager'), (req, res) => {
     audit(req, 'cancel', 'sales', invoice.invoice_no, `Bill cancelled: ${invoice.invoice_no} (${req.body.reason || 'no reason'})`);
     res.json({ ok: true, invoice: invoice });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+// Edit / delete a bill - gated by the bill passcode
+app.put('/api/invoices/:id', requireRole('manager'), (req, res) => {
+  try {
+    const existing = getInvoice(parseInt(req.params.id));
+    if (!existing) {
+      return res.status(404).json(jsonError('Invoice not found'));
+    }
+    if (!checkBillPasscode(req, res, existing.invoice_no)) {
+      return;
+    }
+    const updated = updateInvoice(existing.id, req.body, currentUser(req).id);
+    audit(req, 'update', 'sales', updated.invoice_no, `Bill edited: ${updated.invoice_no} (${req.body.reason || 'no reason'})`, existing, updated);
+    res.json({ ok: true, invoice: updated });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+app.delete('/api/invoices/:id', requireRole('manager'), (req, res) => {
+  try {
+    const existing = getInvoice(parseInt(req.params.id));
+    if (!existing) {
+      return res.status(404).json(jsonError('Invoice not found'));
+    }
+    if (!checkBillPasscode(req, res, existing.invoice_no)) {
+      return;
+    }
+    const snapshot = deleteInvoice(existing.id, currentUser(req).id);
+    audit(req, 'delete', 'sales', snapshot.invoice_no, `Bill deleted: ${snapshot.invoice_no} (${req.body.reason || 'no reason'})`, snapshot, null);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -728,7 +972,7 @@ app.post('/api/purchases', requireRole('manager'), (req, res) => {
     audit(req, 'create', 'purchases', purchase.purchase_no, `Purchase recorded: ${purchase.purchase_no} ₹${purchase.total}`);
     res.json({ ok: true, purchase: purchase });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -738,7 +982,7 @@ app.post('/api/purchases/:id/return', requireRole('manager'), (req, res) => {
     audit(req, 'return', 'purchases', ret.return_no, `Purchase return on ${req.params.id}: ₹${ret.total}`);
     res.json({ ok: true, return: ret });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -761,7 +1005,7 @@ app.post('/api/stock-adjustments', requireRole('manager'), (req, res) => {
       `Stock ${req.body.type || 'adjustment'}: ${adj.item_name || ''} ${req.body.change} units`);
     res.json({ ok: true, adjustment: adj });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -780,7 +1024,7 @@ app.post('/api/cash-session/open', loginRequired, (req, res) => {
     audit(req, 'session_open', 'cash', session.id, `Cash session opened with ₹${req.body.opening_cash || 0}`);
     res.json({ ok: true, session: session });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -790,7 +1034,7 @@ app.post('/api/cash-session/close', loginRequired, (req, res) => {
     audit(req, 'session_close', 'cash', session.id, `Cash session closed. Counted ₹${req.body.closing_cash ?? '-'}`);
     res.json({ ok: true, session: session });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -809,7 +1053,7 @@ app.post('/api/expenses', requireRole('manager'), (req, res) => {
     audit(req, 'create', 'expenses', expense.id, `Expense added: ${expense.category} ₹${expense.amount}`);
     res.json({ ok: true, expense: expense });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -818,17 +1062,25 @@ app.get('/api/expenses', requireRole('manager'), (req, res) => {
 });
 
 app.delete('/api/expenses/:id', requireRole('manager'), (req, res) => {
-  deleteExpense(parseInt(req.params.id));
-  audit(req, 'delete', 'expenses', req.params.id, `Expense deleted (id ${req.params.id})`);
-  res.json({ ok: true });
+  try {
+    const expenseId = parseInt(req.params.id);
+    if (isNaN(expenseId) || !getExpense(expenseId)) {
+      return res.status(404).json(jsonError('Expense not found'));
+    }
+    deleteExpense(expenseId);
+    audit(req, 'delete', 'expenses', req.params.id, `Expense deleted (id ${req.params.id})`);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
 });
 
 // Settings
 app.get('/api/settings', loginRequired, (req, res) => {
   const user = currentUser(req);
-  const payload = { 
-    ok: true, 
-    settings: getSettings(),
+  const payload = {
+    ok: true,
+    settings: publicSettings(),
     drive: driveStatus()
   };
   
@@ -873,12 +1125,34 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
         updates[key] = value;
       }
     }
-    
+
+    // Bill passcode: virtual fields, never stored or echoed in plain text
+    const plainPasscode = req.body.bill_passcode;
+    const clearPasscode = String(req.body.bill_passcode_clear || '') === '1';
+    let passcodeAudit = null;
+    if (clearPasscode) {
+      updates.bill_passcode_hash = '';
+      passcodeAudit = 'Bill passcode cleared';
+    } else if (plainPasscode !== undefined && String(plainPasscode) !== '') {
+      if (!/^\d{4,8}$/.test(String(plainPasscode))) {
+        return res.status(400).json(jsonError('Passcode must be 4-8 digits'));
+      }
+      const bcrypt = require('bcryptjs');
+      updates.bill_passcode_hash = bcrypt.hashSync(String(plainPasscode), 10);
+      passcodeAudit = 'Bill passcode updated';
+    }
+
     const settings = setSettings(updates);
-    audit(req, 'update', 'settings', '', `Settings changed: ${Object.keys(updates).join(', ')}`, null, updates);
-    res.json({ ok: true, settings: settings });
+    if (Object.keys(updates).some((k) => k !== 'bill_passcode_hash')) {
+      const changed = Object.keys(updates).filter((k) => k !== 'bill_passcode_hash');
+      audit(req, 'update', 'settings', '', `Settings changed: ${changed.join(', ')}`, null, updates);
+    }
+    if (passcodeAudit) {
+      audit(req, 'update', 'settings', '', passcodeAudit);
+    }
+    res.json({ ok: true, settings: publicSettings(settings) });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -889,7 +1163,7 @@ app.get('/api/reports', requireRole('manager'), (req, res) => {
     const reportData = reports(range.from, range.to);
     res.json({ ok: true, report: reportData, reports: reportData });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -981,7 +1255,7 @@ app.get('/api/reports/audit', requireRole('manager'), (req, res) => {
     const data = reportLib.staffReports.auditReport(range, req.query);
     res.json({ ok: true, report: data });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -996,7 +1270,7 @@ app.get('/api/reports/:group/:name', requireRole('manager'), (req, res) => {
     const data = handler(range, req.query);
     res.json({ ok: true, report: { from: range.from, to: range.to, ...data } });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1010,7 +1284,7 @@ app.get('/api/reports/:name', requireRole('manager'), (req, res) => {
     const data = handler(range, req.query);
     res.json({ ok: true, report: { from: range.from, to: range.to, ...data } });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1025,7 +1299,7 @@ app.post('/api/users', requireRole('admin'), (req, res) => {
     audit(req, 'create', 'users', user.username, `User created: ${user.username} (${user.role})`);
     res.json({ ok: true, user: user });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1049,18 +1323,21 @@ app.put('/api/users/:id/password', loginRequired, (req, res) => {
     
     res.json({ ok: true });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
 app.delete('/api/users/:id', requireRole('admin'), (req, res) => {
   try {
     const target = getUserById(parseInt(req.params.id));
+    if (target && target.id === currentUser(req).id) {
+      return res.status(400).json(jsonError('You cannot delete your own account'));
+    }
     deleteUser(parseInt(req.params.id));
     audit(req, 'delete', 'users', req.params.id, `User deleted: ${target ? target.username : req.params.id}`);
     res.json({ ok: true });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1121,9 +1398,9 @@ app.post('/api/drive/connect', requireRole('admin'), async (req, res) => {
     res.json({ ok: true, drive: info });
   } catch (error) {
     if (error instanceof DriveError) {
-      res.status(400).json(jsonError(error.message));
+      res.status(400).json(jsonError(errMsg(error)));
     } else {
-      res.status(500).json(jsonError(error.message));
+      res.status(500).json(jsonError(errMsg(error)));
     }
   }
 });
@@ -1139,9 +1416,9 @@ app.post('/api/drive/backup', requireRole('admin'), async (req, res) => {
     res.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof DriveError) {
-      res.status(400).json(jsonError(error.message));
+      res.status(400).json(jsonError(errMsg(error)));
     } else {
-      res.status(500).json(jsonError(error.message));
+      res.status(500).json(jsonError(errMsg(error)));
     }
   }
 });
@@ -1152,9 +1429,9 @@ app.get('/api/drive/backups', requireRole('admin'), async (req, res) => {
     res.json({ ok: true, files: files });
   } catch (error) {
     if (error instanceof DriveError) {
-      res.status(400).json(jsonError(error.message));
+      res.status(400).json(jsonError(errMsg(error)));
     } else {
-      res.status(500).json(jsonError(error.message));
+      res.status(500).json(jsonError(errMsg(error)));
     }
   }
 });
@@ -1175,9 +1452,9 @@ app.post('/api/drive/restore', requireRole('admin'), async (req, res) => {
     res.json({ ok: true, ...result, note: 'Database restored. Please log in again.' });
   } catch (error) {
     if (error instanceof DriveError) {
-      res.status(400).json(jsonError(error.message));
+      res.status(400).json(jsonError(errMsg(error)));
     } else {
-      res.status(500).json(jsonError(error.message));
+      res.status(500).json(jsonError(errMsg(error)));
     }
   }
 });
@@ -1208,7 +1485,7 @@ app.post('/api/estimates', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, estimate: estimate });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1223,7 +1500,7 @@ app.put('/api/estimates/:id', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, estimate: estimate });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1236,7 +1513,7 @@ app.post('/api/estimates/:id/convert', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, ...result });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1271,7 +1548,7 @@ app.post('/api/delivery-challans', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, challan: challan });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1280,7 +1557,7 @@ app.put('/api/delivery-challans/:id/status', requireRole('manager'), (req, res) 
     const challan = updateDeliveryChallanStatus(parseInt(req.params.id), req.body.status);
     res.json({ ok: true, challan: challan });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1289,7 +1566,7 @@ app.put('/api/delivery-challans/:id/link', requireRole('manager'), (req, res) =>
     const challan = linkChallanToInvoice(parseInt(req.params.id), req.body.invoice_id);
     res.json({ ok: true, challan: challan });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1323,7 +1600,7 @@ app.post('/api/credit-notes', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, credit_note: creditNote });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1332,7 +1609,7 @@ app.put('/api/credit-notes/:id/status', requireRole('manager'), (req, res) => {
     const creditNote = updateCreditNoteStatus(parseInt(req.params.id), req.body.status);
     res.json({ ok: true, credit_note: creditNote });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1366,7 +1643,7 @@ app.post('/api/debit-notes', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, debit_note: debitNote });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1375,7 +1652,7 @@ app.put('/api/debit-notes/:id/status', requireRole('manager'), (req, res) => {
     const debitNote = updateDebitNoteStatus(parseInt(req.params.id), req.body.status);
     res.json({ ok: true, debit_note: debitNote });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1409,7 +1686,8 @@ app.post('/api/purchase-orders', requireRole('manager'), (req, res) => {
     });
     res.json({ ok: true, purchase_order: purchaseOrder });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    console.error('PO create error:', error && error.stack ? error.stack : error);
+    res.status(400).json(jsonError(error && error.message !== undefined ? error.message : String(error)));
   }
 });
 
@@ -1418,7 +1696,7 @@ app.put('/api/purchase-orders/:id/status', requireRole('manager'), (req, res) =>
     const purchaseOrder = updatePurchaseOrderStatus(parseInt(req.params.id), req.body.status);
     res.json({ ok: true, purchase_order: purchaseOrder });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1429,7 +1707,7 @@ app.post('/api/purchase-orders/:id/convert', requireRole('manager'), (req, res) 
     });
     res.json({ ok: true, ...result });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1464,7 +1742,7 @@ app.post('/api/accounts', requireRole('admin'), (req, res) => {
     const account = saveAccount(req.body);
     res.json({ ok: true, account: account });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1473,7 +1751,7 @@ app.put('/api/accounts/:id', requireRole('admin'), (req, res) => {
     const account = saveAccount(req.body, parseInt(req.params.id));
     res.json({ ok: true, account: account });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1482,7 +1760,7 @@ app.delete('/api/accounts/:id', requireRole('admin'), (req, res) => {
     deleteAccount(parseInt(req.params.id));
     res.json({ ok: true });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1504,7 +1782,7 @@ app.post('/api/accounts/:id/transactions', requireRole('manager'), (req, res) =>
     });
     res.json({ ok: true, transaction: transaction });
   } catch (error) {
-    res.status(400).json(jsonError(error.message));
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1515,6 +1793,9 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.parse.failed' || err.status === 400)) {
+    return res.status(400).json(jsonError('Invalid request body'));
+  }
   console.error('Server error:', err);
   res.status(500).json(jsonError('Internal server error'));
 });
@@ -1529,6 +1810,14 @@ async function startServer() {
       console.log(`Mart POS server running on http://localhost:${PORT}`);
       console.log('Default login: admin / admin');
     });
+
+    const shutdown = () => {
+      flushSave();
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.on('beforeExit', flushSave);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

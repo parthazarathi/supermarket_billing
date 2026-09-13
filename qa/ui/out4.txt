@@ -1,0 +1,74 @@
+RECENT INVOICES: [{"no":"INV-20260913-0011","total":230,"paid":50,"status":"partial"},{"no":"INV-20260913-0010","total":75,"paid":10,"status":"partial"},{"no":"INV-20260913-0009","total":31.5,"paid":31.5,"status":"paid"},{"no":"INV-20260913-0008","total":60,"paid":0,"status":"unpaid"},{"no":"INV-20260913-0007","total":60,"paid":60,"status":"paid"}]
+PARTIAL INV: INV-20260913-0011 total 230 paid 50 status partial
+RECEIPT(partial) Due line: true Change line: false | snippet: Paid (Cash)</span>
+sales cat first report chips: ["sales/summary","sales/day-wise","sales/bill-wise","sales/item-wise","sales/category-wise","sales/customer-wise","sales/cashier-wise","sales/payment-wise","sales/hourly","sales/discounts","sales/cancelled","sales/returns"]
+custom preset: rptShow exists: true date fields visible: true
+RPT custom valid: status= Default password in use — please change it under Settings bad= [] rows= 0
+RPT from>to: status= From date cannot be after To date
+RPT only-from: status= Select both From and To dates
+RPT overview/overview: rows=1 status=Select both From and To dates
+RPT sales/sales/summary: rows=0 status=Select both From and To dates
+RPT sales/sales/day-wise: rows=1 status=Select both From and To dates
+RPT sales/sales/bill-wise: rows=11 status=Select both From and To dates
+RPT sales/sales/item-wise: rows=5 status=Select both From and To dates
+RPT sales/sales/category-wise: rows=5 status=Select both From and To dates
+RPT sales/sales/customer-wise: rows=2 status=Select both From and To dates
+RPT sales/sales/cashier-wise: rows=1 status=Select both From and To dates
+RPT sales/sales/payment-wise: rows=1 status=Select both From and To dates
+RPT sales/sales/hourly: rows=3 status=Select both From and To dates
+RPT sales/sales/discounts: rows=2 status=Select both From and To dates
+RPT sales/sales/cancelled: rows=1 status=Select both From and To dates
+RPT sales/sales/returns: rows=1 status=Select both From and To dates
+RPT inventory/inventory/current-stock: rows=16 status=Select both From and To dates
+RPT inventory/inventory/low-stock: rows=1 status=Select both From and To dates
+RPT inventory/inventory/out-of-stock: rows=1 status=Select both From and To dates
+RPT inventory/inventory/valuation: rows=16 status=Select both From and To dates
+RPT inventory/inventory/ledger: rows=0 empty="Select a item to view this report." status=Select both From and To dates
+RPT inventory/inventory/movement: rows=16 status=Select both From and To dates
+RPT inventory/inventory/fast-moving: rows=5 status=Select both From and To dates
+RPT inventory/inventory/slow-moving: rows=5 status=Select both From and To dates
+RPT inventory/inventory/dead-stock: rows=12 status=Select both From and To dates
+RPT inventory/inventory/adjustments: rows=1 status=Select both From and To dates
+RPT purchases/purchases/summary: rows=0 status=Select both From and To dates
+RPT purchases/purchases/supplier-wise: rows=1 status=Select both From and To dates
+RPT purchases/purchases/item-wise: rows=2 status=Select both From and To dates
+RPT purchases/purchases/invoices: rows=1 status=Select both From and To dates
+RPT purchases/purchases/returns: rows=1 status=Select both From and To dates
+RPT purchases/purchases/payments: rows=1 status=Select both From and To dates
+RPT purchases/purchases/pending: rows=1 status=Select both From and To dates
+RPT purchases/purchases/price-history: rows=0 empty="Select a item to view this report." status=Select both From and To dates
+RPT profit-loss/profit-loss/summary: rows=0 status=Select both From and To dates
+RPT profit-loss/profit-loss/day-wise: rows=1 status=Select both From and To dates
+RPT profit-loss/profit-loss/item-wise: rows=5 status=Select both From and To dates
+RPT profit-loss/profit-loss/category-wise: rows=5 status=Select both From and To dates
+RPT profit-loss/profit-loss/expenses: rows=1 status=Select both From and To dates
+RPT profit-loss/profit-loss/expense-categories: rows=1 status=Select both From and To dates
+RPT profit-loss/profit-loss/income-expense: rows=1 status=Select both From and To dates
+RPT payments/payments/summary: rows=1 status=Select both From and To dates
+RPT payments/payments/daily: rows=1 status=Select both From and To dates
+RPT payments/payments/credit-sales: rows=3 status=Select both From and To dates
+RPT payments/payments/collections: rows=1 status=Select both From and To dates
+RPT payments/payments/day-closing: rows=1 status=Select both From and To dates
+RPT customers/customers/summary: rows=7 status=Select both From and To dates
+RPT customers/customers/ledger: rows=0 empty="Select a customer to view this report." status=Select both From and To dates
+RPT customers/customers/outstanding: rows=1 status=Select both From and To dates
+RPT customers/customers/history: rows=0 empty="Select a customer to view this report." status=Select both From and To dates
+RPT customers/customers/top: rows=1 status=Select both From and To dates
+RPT suppliers/suppliers/summary: rows=1 status=Select both From and To dates
+RPT suppliers/suppliers/ledger: rows=0 empty="Select a supplier to view this report." status=Select both From and To dates
+RPT suppliers/suppliers/outstanding: rows=1 status=Select both From and To dates
+RPT suppliers/suppliers/payments: rows=1 status=Select both From and To dates
+RPT suppliers/suppliers/top: rows=1 status=Select both From and To dates
+RPT returns/returns/all: rows=4 status=Select both From and To dates
+RPT gst/gst/sales: rows=0 status=Select both From and To dates
+RPT gst/gst/purchases: rows=0 status=Select both From and To dates
+RPT gst/gst/rate-wise: rows=3 status=Select both From and To dates
+RPT gst/gst/hsn-sales: rows=3 status=Select both From and To dates
+RPT gst/gst/hsn-purchases: rows=1 status=Select both From and To dates
+RPT gst/gst/returns: rows=0 status=Select both From and To dates
+RPT cashiers/cashiers/sales: rows=1 status=Select both From and To dates
+RPT cashiers/cashiers/payments: rows=1 status=Select both From and To dates
+RPT cashiers/cashiers/discounts: rows=2 status=Select both From and To dates
+RPT cashiers/cashiers/returns: rows=1 status=Select both From and To dates
+RPT cashiers/cashiers/sessions: rows=1 status=Select both From and To dates
+RPT audit/audit: rows=50 status=Select both From and To dates

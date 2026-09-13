@@ -1,0 +1,278 @@
+[PASS] TC-AUTH-001 valid admin login
+       expected: {"status":200,"ok":true,"role":"admin"}
+       actual:   {"status":200,"ok":true,"role":"admin"}
+[PASS] TC-AUTH-001b login response does not expose password_hash
+       expected: false
+       actual:   false
+[PASS] TC-AUTH-003 invalid username -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-004 invalid password -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-005 empty username -> 4xx (not 500)
+       expected: true
+       actual:   true
+       note: status=401 body={"ok":false,"error":"Invalid username or password"}
+[PASS] TC-AUTH-006 empty password -> 4xx (not 500)
+       expected: true
+       actual:   true
+       note: status=401 body={"ok":false,"error":"Invalid username or password"}
+[PASS] TC-AUTH-007 both missing -> 4xx (not 500)
+       expected: true
+       actual:   true
+       note: status=401 body={"ok":false,"error":"Invalid username or password"}
+[PASS] TC-AUTH-007b wrong types -> 4xx (not 500)
+       expected: true
+       actual:   true
+       note: status=401 body={"ok":false,"error":"Invalid username or password"}
+[PASS] TC-AUTH-010 protected API without login -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-010b dashboard without login -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-010c settings without login -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-010d invoice pdf without login -> 401
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-010e /api/me anonymous exposes only public settings (no passcode hash)
+       expected: false
+       actual:   false
+       note: {"ok":true,"user":null,"settings":{"shop_name":"Bharathi Supermarket","gstin":"","upi_vpa":"merchant@upi","upi_name":"Mart POS","gst_type":"intra","default_gst":"0","drive_auto_backup":"0","must_chang
+[PASS] TC-USER-001 create TEST-CASHIER
+       expected: true
+       actual:   true
+       note: {"ok":true,"user":{"id":3,"username":"TEST-CASHIER","role":"cashier","created_at":"2026-09-13T17:44:00.384Z"}}
+[PASS] TC-USER-002 create TEST-ADMIN
+       expected: true
+       actual:   true
+       note: {"ok":true,"user":{"id":4,"username":"TEST-ADMIN","role":"admin","created_at":"2026-09-13T17:44:00.459Z"}}
+[PASS] TC-USER-003 duplicate username -> 400 friendly error (no raw SQL text)
+       expected: true
+       actual:   true
+       note: status=400 body={"ok":false,"error":"Username already exists"}
+[PASS] TC-USER-004 empty username/password rejected
+       expected: true
+       actual:   true
+       note: status=400 body={"ok":false,"error":"Username is required"}
+[PASS] TC-USER-005 invalid role falls back to cashier (documented) 
+       expected: cashier
+       actual:   cashier
+       note: {"ok":true,"user":{"id":5,"username":"TEST-SUPER","role":"cashier","created_at":"2026-09-13T17:44:00.539Z"}}
+[PASS] TC-AUTH-002 valid cashier login
+       expected: {"status":200,"role":"cashier"}
+       actual:   {"status":200,"role":"cashier"}
+[PASS] TC-AUTH-014a cashier GET purchases -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014b cashier create item -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014c cashier reports -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014d cashier list users -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014e cashier change settings -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014f cashier list expenses -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014g cashier can list invoices (allowed) -> 200
+       expected: 200
+       actual:   200
+[PASS] TC-AUTH-014h cashier cannot change admin password -> 403
+       expected: 403
+       actual:   403
+[PASS] TC-AUTH-014i cashier record party payment -> 403
+       expected: 403
+       actual:   403
+[400] TC-AUTH-014j cashier can collect invoice dues (loginRequired only)
+       expected: design: allowed
+       actual:   400
+       note: informational
+[PASS] TC-AUTH-014k cashier GET settings does not include users/db_path
+       expected: false
+       actual:   false
+       note: {"ok":true,"settings":{"shop_name":"Bharathi Supermarket","gstin":"","upi_vpa":"merchant@upi","upi_name":"Mart POS","gst_type":"intra","default_gst":"0","drive_auto_backup":"0","must_change_password":
+[INFO] TC-AUTH-014l cashier can read bank/cash accounts + balances
+       expected: design decision
+       actual:   200
+       note: {"ok":true,"accounts":[]}
+[PASS] TC-AUTH-008 logout ok
+       expected: 200
+       actual:   200
+[PASS] TC-AUTH-009 after logout, same cookie is rejected
+       expected: 401
+       actual:   401
+[PASS] TC-AUTH-012 session persists across requests (refresh)
+       expected: admin
+       actual:   admin
+[PASS] TC-AUTH-013 second browser login does not kill first session
+       expected: admin
+       actual:   admin
+[PASS] TC-PARTY-create-TEST-CUSTOMER-001 create TEST-CUSTOMER-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"party":{"id":10,"name":"TEST-CUSTOMER-001","phone":"9000000001","type":"customer","gstin":"","opening_balanc
+[PASS] TC-PARTY-create-TEST-CUSTOMER-002 create TEST-CUSTOMER-002
+       expected: true
+       actual:   true
+       note: {"ok":true,"party":{"id":11,"name":"TEST-CUSTOMER-002","phone":"9000000002","type":"customer","gstin":"","opening_balanc
+[PASS] TC-PARTY-create-TEST-SUPPLIER-001 create TEST-SUPPLIER-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"party":{"id":12,"name":"TEST-SUPPLIER-001","phone":"9000000011","type":"supplier","gstin":"29ABCDE1234F1Z5",
+[PASS] TC-PARTY-create-TEST-SUPPLIER-002 create TEST-SUPPLIER-002
+       expected: true
+       actual:   true
+       note: {"ok":true,"party":{"id":13,"name":"TEST-SUPPLIER-002","phone":"9000000012","type":"supplier","gstin":"","opening_balanc
+[PASS] TC-PARTY-dup duplicate customer name accepted?
+       expected: reject or warn
+       actual:   rejected
+[PASS] TC-PARTY-empty empty party name rejected
+       expected: 400
+       actual:   400
+[PASS] TC-PARTY-xss script name stored verbatim (escaping is client side) - no crash
+       expected: 200
+       actual:   200
+[PASS] TC-PARTY-sqli sql-like name handled by params
+       expected: 200
+       actual:   200
+[PASS] TC-PARTY-neg negative opening balance/credit limit accepted
+       expected: validate
+       actual:   {"ok":false,"error":"Invalid opening balance"}
+[PASS] TC-PARTY-type invalid type coerced to customer
+       expected: customer
+       actual:   customer
+[PASS] TC-PARTY-filter filter suppliers only
+       expected: true
+       actual:   true
+[PASS] TC-ITEM-001-TEST-RICE-001 create TEST-RICE-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":30,"code":"TEST-RICE-001","name":"TEST Rice 1kg","category":"TEST-Grocery","hsn":"1006","gst_per
+[PASS] TC-ITEM-001-TEST-SUGAR-001 create TEST-SUGAR-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":31,"code":"TEST-SUGAR-001","name":"TEST Sugar 1kg","category":"TEST-Grocery","hsn":"","gst_perce
+[PASS] TC-ITEM-001-TEST-MILK-001 create TEST-MILK-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":32,"code":"TEST-MILK-001","name":"TEST Milk 500ml","category":"TEST-Dairy","hsn":"","gst_percent
+[PASS] TC-ITEM-001-TEST-BREAD-001 create TEST-BREAD-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":33,"code":"TEST-BREAD-001","name":"TEST Bread","category":"TEST-Bakery","hsn":"","gst_percent":1
+[PASS] TC-ITEM-001-TEST-BISCUIT-001 create TEST-BISCUIT-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":34,"code":"TEST-BISCUIT-001","name":"TEST Biscuit","category":"TEST-Bakery","hsn":"","gst_percen
+[PASS] TC-ITEM-001-TEST-SOAP-001 create TEST-SOAP-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":35,"code":"TEST-SOAP-001","name":"TEST Soap","category":"TEST-Personal Care","hsn":"","gst_perce
+[PASS] TC-ITEM-001-TEST-COLA-001 create TEST-COLA-001
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":36,"code":"TEST-COLA-001","name":"TEST Cola 1L","category":"TEST-Beverages","hsn":"","gst_percen
+[PASS] TC-ITEM-003 empty item form -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Purchase price must be greater than 0 and sale price and MRP cannot be negative"}
+[PASS] TC-ITEM-002 minimum fields item created
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":37,"code":"TEST-MIN-001","name":"TEST Min","category":"General","hsn":"","gst_percent":18,"purchase_price":10,"sale_price":12,
+[PASS] TC-ITEM-004 duplicate item name -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"An item with this name already exists"}
+[PASS] TC-ITEM-005/006 duplicate code/barcode -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"An item with this barcode already exists"}
+[PASS] TC-ITEM-007 invalid sale price "abc" (falls back to purchase*1.2?)
+       expected: reject
+       actual:   {"ok":false,"error":"Sale price must be greater than 0"}
+[PASS] TC-ITEM-008 negative price -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Sale price must be greater than 0"}
+[PASS] TC-ITEM-009 zero sale price silently replaced by purchase*1.2?
+       expected: reject or explicit
+       actual:   {"ok":false,"error":"Sale price must be greater than 0"}
+[PASS] TC-ITEM-010 negative stock -> 400
+       expected: 400
+       actual:   400
+       note: {"ok":false,"error":"Stock cannot be negative"}
+[INFO] TC-ITEM-011 decimal stock for pcs unit accepted
+       expected: design (REAL column)
+       actual:   2.5
+[PASS] TC-ITEM-012 large quantity ok
+       expected: 1000000000000
+       actual:   1000000000000
+[PASS] TC-ITEM-013 special chars/unicode/emoji stored
+       expected: true
+       actual:   true
+       note: {"ok":true,"item":{"id":40,"code":"TEST-SPéc!@#$%","name":"TEST 特殊 🍚 <b>x</b> ' OR 1=1","category":"General","hsn":"","gst_percent":18,"purchase_price":10,"sale_price":12,"stock":1,"unit":"pcs","low_
+[INFO] TC-ITEM-014 very long name (5000 chars) accepted without limit
+       expected: length limit
+       actual:   {"ok":false,"error":"Item name is too long"}
+[PASS] TC-ITEM-gst gst_percent 99 accepted (no allowed-slab validation)
+       expected: restrict to 0/5/12/18/28
+       actual:   undefined
+[PASS] TC-ITEM-gstneg negative gst_percent accepted
+       expected: reject
+       actual:   {"ok":false,"error":"GST percent must be one of 0, 0.25, 3, 5, 12, 18, 28"}
+[PASS] TC-ITEM-015 edit item
+       expected: TEST Rice 1kg (edited)
+       actual:   TEST Rice 1kg (edited)
+       note: {"ok":true,"item":{"id":30,"code":"TEST-RICE-001","name":"TEST Rice 1kg (edited)","category":"TEST-Grocery","hsn":"1006","gst_percent":5,"purchase_pri
+[PASS] TC-ITEM-soldout-stock stock after selling the only unit = 0
+       expected: 0
+       actual:   0
+[PASS] TC-ITEM-015b edit a sold-out item (stock 0) must be allowed
+       expected: 200
+       actual:   200
+       note: {"ok":true,"item":{"id":41,"code":"TEST-SOLDOUT","name":"TEST soldout renamed","category":"General","hsn":"","gst_percent":18,"purchase_price":10,"sale_price":12,"stock":0,"unit":"pcs","low_stock":5,"created_at":"2026-09-13T17:44:01.094Z","updated_at":"2026-09-13T17:44:01.119Z","mrp":12}}
+[PASS] TC-ITEM-018 search by code
+       expected: true
+       actual:   true
+[PASS] TC-ITEM-018b search by name
+       expected: true
+       actual:   true
+[PASS] TC-ITEM-019 filter by category
+       expected: true
+       actual:   true
+[INFO] TC-ITEM-018c search "%" wildcard not escaped -> returns all items
+       expected: escape LIKE wildcards
+       actual:   0
+[PASS] TC-ITEM-017 delete item that has invoice lines is blocked (no orphans)
+       expected: 400
+       actual:   400
+       note: item had a sale; deletion refused to protect invoice history
+[PASS] TC-ITEM-017b invoice keeps line after item deleted
+       expected: true
+       actual:   true
+[PASS] TC-ITEM-016b delete nonexistent item returns
+       expected: 404
+       actual:   404
+[PASS] TC-CAT-001 categories list derived includes TEST-Grocery
+       expected: true
+       actual:   true
+
+===== SUMMARY =====
+total=78 pass=73 fail=0 other=5
+  auth: pass=28 fail=0 other=2
+  users: pass=5 fail=0 other=0
+  parties: pass=11 fail=0 other=0
+  items: pass=28 fail=0 other=3
+  categories: pass=1 fail=0 other=0
+
+FAILED:

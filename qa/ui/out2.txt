@@ -1,0 +1,19 @@
+logged in: admin
+create TEST-UI item: "ok"
+ADD-VIA-ENTER cart items: 1 TEST-UI-001 qty: 1
+ADD-VIA-BTN qty delta: 1 total: 2
+QTY-PLUS qty: 3
+QTY-MINUS x5 qty: 0.01 items: 1
+QTY-SET-0 result qty:  still in cart: false status: Added TEST-UI-WIDGET
+REFRESH-MID-CART items preserved: []
+BILL-DISCOUNT discount: 5 total: 0
+PAID> TOTAL change display: ₹ 1000.00
+PAYMODE UPI active=UPI qrShown=false
+PAYMODE Card active=Card qrShown=false
+PAYMODE Cash active=Cash qrShown=false
+PAID<TOTAL charge status: Cart is empty
+  last invoice: {"id":9,"invoice_no":"INV-20260913-0009","party_id":null,"party_name":"","party_phone":"","subtotal":30,"discount":0,"tax":1.5,"cgst":0.75,"sgst":0.75,"igst":0,"total":31.5,"paid":31.5,"payment_method":"Cash","status":"paid","user_id":1,"created_at":"2026-09-13T15:13:40.514Z","cancelled_by":null,"cancelled_at":null,"cancel_reason":""}
+cart before double-click: ["TEST-UI-001x1"] total: 75
+DOUBLE-CLICK charge invoices before: 9 after: 10 delta: 1 status: Cart is empty
+RECEIPT fields: invoice_no present= true | shop present= true | TOTAL= true | Paid= true | Change= false | Due= false | width= size: 80mm
+RECEIPT render clip check: {"sw":500,"cw":500,"rpW":302}

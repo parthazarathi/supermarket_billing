@@ -1,0 +1,1029 @@
+diff --git a/.gitignore b/.gitignore
+index 9f05b1e..8dd8d61 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -43,4 +43,8 @@ coverage/
+ 
+ # Temporary files
+ tmp/
+-temp/
+\ No newline at end of file
++temp/
++# Local secrets / test artifacts
++cookies.txt
++data/session-secret.txt
++data/pos.db.tmp
+diff --git a/lib/accounts.js b/lib/accounts.js
+index f148da7..30efe0e 100644
+--- a/lib/accounts.js
++++ b/lib/accounts.js
+@@ -1,4 +1,4 @@
+-const { getDatabase, withTransaction, execToObjects, execToObject } = require('./database');
++const { withTransaction, execToObjects, execToObject } = require('./database');
+ 
+ function listAccounts() {
+   const accounts = execToObjects('SELECT * FROM accounts ORDER BY is_default DESC, name');
+@@ -12,7 +12,7 @@ function listAccounts() {
+ }
+ 
+ function getAccount(accountId) {
+-  const account = execToObject(`SELECT * FROM accounts WHERE id = ${accountId}`);
++  const account = execToObject('SELECT * FROM accounts WHERE id = ?', [accountId]);
+   if (account) {
+     account.current_balance = calculateAccountBalance(account.id);
+   }
+@@ -20,16 +20,15 @@ function getAccount(accountId) {
+ }
+ 
+ function calculateAccountBalance(accountId) {
+-  const account = execToObject(`SELECT * FROM accounts WHERE id = ${accountId}`);
++  const account = execToObject('SELECT * FROM accounts WHERE id = ?', [accountId]);
+   if (!account) return 0;
+ 
+   const opening = parseFloat(account.opening_balance) || 0;
+-  
+-  const transactions = execToObjects(`
+-    SELECT transaction_type, amount 
+-    FROM account_transactions 
+-    WHERE account_id = ${accountId}
+-  `);
++
++  const transactions = execToObjects(
++    'SELECT transaction_type, amount FROM account_transactions WHERE account_id = ?',
++    [accountId]
++  );
+   
+   let balance = opening;
+   for (const tx of transactions) {
+@@ -45,17 +44,17 @@ function calculateAccountBalance(accountId) {
+ }
+ 
+ function saveAccount(data, accountId = null) {
+-  const name = (data.name || '').trim().replace(/'/g, "''");
++  const name = (data.name || '').trim();
+   if (!name) {
+     throw new Error('Account name is required');
+   }
+ 
+   const validTypes = ['cash', 'bank'];
+   const accountType = validTypes.includes(data.type) ? data.type : 'cash';
+-  const accountNumber = (data.account_number || '').replace(/'/g, "''");
+-  const bankName = (data.bank_name || '').replace(/'/g, "''");
+-  const branch = (data.branch || '').replace(/'/g, "''");
+-  const ifsc = (data.ifsc || '').replace(/'/g, "''");
++  const accountNumber = data.account_number || '';
++  const bankName = data.bank_name || '';
++  const branch = data.branch || '';
++  const ifsc = data.ifsc || '';
+   const openingBalance = parseFloat(data.opening_balance) || 0;
+   const isDefault = data.is_default ? 1 : 0;
+ 
+@@ -68,10 +67,12 @@ function saveAccount(data, accountId = null) {
+     }
+     
+     if (accountId) {
+-      db.run(`UPDATE accounts SET name='${name}', type='${accountType}', account_number='${accountNumber}', bank_name='${bankName}', branch='${branch}', ifsc='${ifsc}', opening_balance=${openingBalance}, is_default=${isDefault}, updated_at='${now}' WHERE id=${accountId}`);
++      db.run('UPDATE accounts SET name=?, type=?, account_number=?, bank_name=?, branch=?, ifsc=?, opening_balance=?, is_default=?, updated_at=? WHERE id=?',
++        [name, accountType, accountNumber, bankName, branch, ifsc, openingBalance, isDefault, now, accountId]);
+       return getAccount(accountId);
+     } else {
+-      db.run(`INSERT INTO accounts (name, type, account_number, bank_name, branch, ifsc, opening_balance, current_balance, is_default, created_at, updated_at) VALUES ('${name}', '${accountType}', '${accountNumber}', '${bankName}', '${branch}', '${ifsc}', ${openingBalance}, ${openingBalance}, ${isDefault}, '${now}', '${now}')`);
++      db.run('INSERT INTO accounts (name, type, account_number, bank_name, branch, ifsc, opening_balance, current_balance, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
++        [name, accountType, accountNumber, bankName, branch, ifsc, openingBalance, openingBalance, isDefault, now, now]);
+       const result = execToObject('SELECT * FROM accounts WHERE id = last_insert_rowid()');
+       if (result) {
+         result.current_balance = calculateAccountBalance(result.id);
+@@ -92,8 +93,8 @@ function deleteAccount(accountId) {
+   }
+   
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM account_transactions WHERE account_id = ${accountId}`);
+-    db.run(`DELETE FROM accounts WHERE id = ${accountId}`);
++    db.run('DELETE FROM account_transactions WHERE account_id = ?', [accountId]);
++    db.run('DELETE FROM accounts WHERE id = ?', [accountId]);
+   });
+ }
+ 
+@@ -119,34 +120,31 @@ function createTransaction(data) {
+ 
+   return withTransaction((db) => {
+     const now = new Date().toISOString();
+-    const safeNotes = (notes || '').replace(/'/g, "''");
+-    
+-    db.run(`
+-      INSERT INTO account_transactions (account_id, transaction_type, amount, reference_type, reference_id, party_id, notes, created_at)
+-      VALUES (${accountId}, '${transactionType}', ${parseFloat(amount)}, '${referenceType}', ${referenceId}, ${partyId || 'NULL'}, '${safeNotes}', '${now}')
+-    `);
++
++    db.run(
++      'INSERT INTO account_transactions (account_id, transaction_type, amount, reference_type, reference_id, party_id, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
++      [accountId, transactionType, parseFloat(amount), referenceType, referenceId, partyId || null, notes || '', now]
++    );
+ 
+     // Update account current balance
+     const account = getAccount(accountId);
+     const newBalance = calculateAccountBalance(accountId);
+-    db.run(`UPDATE accounts SET current_balance = ${newBalance}, updated_at = '${now}' WHERE id = ${accountId}`);
++    db.run('UPDATE accounts SET current_balance = ?, updated_at = ? WHERE id = ?', [newBalance, now, accountId]);
+ 
+     return execToObject('SELECT * FROM account_transactions WHERE id = last_insert_rowid()');
+   });
+ }
+ 
+ function listAccountTransactions(accountId, limit = 100) {
+-  const transactions = execToObjects(`
+-    SELECT * FROM account_transactions 
+-    WHERE account_id = ${accountId}
+-    ORDER BY id DESC 
+-    LIMIT ${limit}
+-  `);
+-  
++  const transactions = execToObjects(
++    'SELECT * FROM account_transactions WHERE account_id = ? ORDER BY id DESC LIMIT ?',
++    [accountId, limit]
++  );
++
+   // Add party details where available
+   for (const tx of transactions) {
+     if (tx.party_id) {
+-      const party = execToObject(`SELECT name FROM parties WHERE id = ${tx.party_id}`);
++      const party = execToObject('SELECT name FROM parties WHERE id = ?', [tx.party_id]);
+       if (party) {
+         tx.party_name = party.name;
+       }
+diff --git a/lib/cart.js b/lib/cart.js
+index 7345a78..fcf98ce 100644
+--- a/lib/cart.js
++++ b/lib/cart.js
+@@ -74,14 +74,30 @@ function calculateCartTotals(cart, billDiscount = 0) {
+   };
+ }
+ 
++const NUMBER_SEQUENCE_COLUMNS = {
++  invoices: 'invoice_no',
++  sale_returns: 'return_no',
++  estimates: 'estimate_no',
++  purchase_orders: 'order_no',
++  delivery_challans: 'challan_no',
++  credit_notes: 'credit_note_no',
++  debit_notes: 'debit_note_no',
++  purchases: 'purchase_no',
++  purchase_returns: 'return_no'
++};
++
+ function generateNextNumber(db, table, column, prefix) {
++  if (NUMBER_SEQUENCE_COLUMNS[table] !== column) {
++    throw new Error(`Invalid number sequence target: ${table}.${column}`);
++  }
++
+   const today = new Date();
+   const dayPrefix = today.getFullYear().toString() +
+     String(today.getMonth() + 1).padStart(2, '0') +
+     String(today.getDate()).padStart(2, '0');
+-  
++
+   const likePattern = `${prefix}-${dayPrefix}-%`;
+-  const result = db.exec(`SELECT ${column} FROM ${table} WHERE ${column} LIKE '${likePattern}' ORDER BY id DESC LIMIT 1`);
++  const result = db.exec(`SELECT ${column} FROM ${table} WHERE ${column} LIKE ? ORDER BY id DESC LIMIT 1`, [likePattern]);
+   
+   let seq = 1;
+   if (result.length > 0 && result[0].values.length > 0) {
+diff --git a/lib/creditDebitNotes.js b/lib/creditDebitNotes.js
+index 19bc9c1..655d4e0 100644
+--- a/lib/creditDebitNotes.js
++++ b/lib/creditDebitNotes.js
+@@ -290,7 +290,7 @@ function updateCreditNoteStatus(creditNoteId, status) {
+   }
+ 
+   return withTransaction((db) => {
+-    db.run(`UPDATE credit_notes SET status = '${status}' WHERE id = ${creditNoteId}`);
++    db.run('UPDATE credit_notes SET status = ? WHERE id = ?', [status, creditNoteId]);
+     return getCreditNote(creditNoteId);
+   });
+ }
+@@ -302,22 +302,22 @@ function updateDebitNoteStatus(debitNoteId, status) {
+   }
+ 
+   return withTransaction((db) => {
+-    db.run(`UPDATE debit_notes SET status = '${status}' WHERE id = ${debitNoteId}`);
++    db.run('UPDATE debit_notes SET status = ? WHERE id = ?', [status, debitNoteId]);
+     return getDebitNote(debitNoteId);
+   });
+ }
+ 
+ function deleteCreditNote(creditNoteId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM credit_note_items WHERE credit_note_id = ${creditNoteId}`);
+-    db.run(`DELETE FROM credit_notes WHERE id = ${creditNoteId}`);
++    db.run('DELETE FROM credit_note_items WHERE credit_note_id = ?', [creditNoteId]);
++    db.run('DELETE FROM credit_notes WHERE id = ?', [creditNoteId]);
+   });
+ }
+ 
+ function deleteDebitNote(debitNoteId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM debit_note_items WHERE debit_note_id = ${debitNoteId}`);
+-    db.run(`DELETE FROM debit_notes WHERE id = ${debitNoteId}`);
++    db.run('DELETE FROM debit_note_items WHERE debit_note_id = ?', [debitNoteId]);
++    db.run('DELETE FROM debit_notes WHERE id = ?', [debitNoteId]);
+   });
+ }
+ 
+diff --git a/lib/database.js b/lib/database.js
+index d2881fa..6bcb7e7 100644
+--- a/lib/database.js
++++ b/lib/database.js
+@@ -580,7 +580,7 @@ function seedDefaults() {
+ 
+   for (const [key, value] of Object.entries(defaults)) {
+     try {
+-      db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('${key}', '${value}')`);
++      db.run('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+     } catch (error) {
+       console.log('Setting already exists:', key);
+     }
+@@ -604,10 +604,10 @@ function seedDefaults() {
+   console.log('Verification after creation:', verifyResult);
+ 
+   // Default walk-in customer
+-  db.run(`INSERT INTO parties (name, phone, type, gstin, opening_balance, created_at, updated_at) VALUES ('Walk-in Customer', '', 'customer', '', 0, '${now}', '${now}')`);
+-  
++  db.run('INSERT INTO parties (name, phone, type, gstin, opening_balance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['Walk-in Customer', '', 'customer', '', 0, now, now]);
++
+   // Default cash account
+-  db.run(`INSERT INTO accounts (name, type, opening_balance, current_balance, is_default, created_at, updated_at) VALUES ('Cash', 'cash', 0, 0, 1, '${now}', '${now}')`);
++  db.run('INSERT INTO accounts (name, type, opening_balance, current_balance, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['Cash', 'cash', 0, 0, 1, now, now]);
+ }
+ 
+ function saveDatabase() {
+@@ -615,9 +615,29 @@ function saveDatabase() {
+   const data = db.export();
+   const buffer = Buffer.from(data);
+   const dbPath = getDbPath();
+-  console.log('Saving database to:', dbPath);
+-  fs.writeFileSync(dbPath, buffer);
+-  console.log('Database saved successfully');
++  const tmpPath = `${dbPath}.tmp`;
++  fs.writeFileSync(tmpPath, buffer);
++  fs.renameSync(tmpPath, dbPath);
++}
++
++let saveTimer = null;
++
++function scheduleSave() {
++  if (saveTimer) {
++    clearTimeout(saveTimer);
++  }
++  saveTimer = setTimeout(() => {
++    saveTimer = null;
++    saveDatabase();
++  }, 1500);
++}
++
++function flushSave() {
++  if (saveTimer) {
++    clearTimeout(saveTimer);
++    saveTimer = null;
++    saveDatabase();
++  }
+ }
+ 
+ function getDatabase() {
+@@ -637,12 +657,12 @@ function withTransaction(callback) {
+     db.run('ROLLBACK');
+     throw error;
+   } finally {
+-    saveDatabase();
++    scheduleSave();
+   }
+ }
+ 
+-function execToObjects(sql) {
+-  const result = db.exec(sql);
++function execToObjects(sql, params = []) {
++  const result = db.exec(sql, params);
+   const objects = [];
+   
+   if (result.length > 0 && result[0].values.length > 0) {
+@@ -659,8 +679,8 @@ function execToObjects(sql) {
+   return objects;
+ }
+ 
+-function execToObject(sql) {
+-  const objects = execToObjects(sql);
++function execToObject(sql, params = []) {
++  const objects = execToObjects(sql, params);
+   return objects.length > 0 ? objects[0] : null;
+ }
+ 
+@@ -668,6 +688,8 @@ module.exports = {
+   initDatabase,
+   getDatabase,
+   saveDatabase,
++  scheduleSave,
++  flushSave,
+   withTransaction,
+   execToObjects,
+   execToObject
+diff --git a/lib/deliveryChallans.js b/lib/deliveryChallans.js
+index 56fe264..aef4d01 100644
+--- a/lib/deliveryChallans.js
++++ b/lib/deliveryChallans.js
+@@ -160,22 +160,22 @@ function updateDeliveryChallanStatus(challanId, status) {
+ 
+   return withTransaction((db) => {
+     const now = new Date().toISOString();
+-    db.run(`UPDATE delivery_challans SET status = '${status}', updated_at = '${now}' WHERE id = ${challanId}`);
++    db.run('UPDATE delivery_challans SET status = ?, updated_at = ? WHERE id = ?', [status, now, challanId]);
+     return getDeliveryChallan(challanId);
+   });
+ }
+ 
+ function linkChallanToInvoice(challanId, invoiceId) {
+   return withTransaction((db) => {
+-    db.run(`UPDATE delivery_challans SET invoice_id = ${invoiceId}, updated_at = '${new Date().toISOString()}' WHERE id = ${challanId}`);
++    db.run('UPDATE delivery_challans SET invoice_id = ?, updated_at = ? WHERE id = ?', [invoiceId, new Date().toISOString(), challanId]);
+     return getDeliveryChallan(challanId);
+   });
+ }
+ 
+ function deleteDeliveryChallan(challanId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM challan_items WHERE challan_id = ${challanId}`);
+-    db.run(`DELETE FROM delivery_challans WHERE id = ${challanId}`);
++    db.run('DELETE FROM challan_items WHERE challan_id = ?', [challanId]);
++    db.run('DELETE FROM delivery_challans WHERE id = ?', [challanId]);
+   });
+ }
+ 
+diff --git a/lib/driveSync.js b/lib/driveSync.js
+index df64d6c..5b44ad4 100644
+--- a/lib/driveSync.js
++++ b/lib/driveSync.js
+@@ -184,6 +184,11 @@ async function backupDatabase() {
+   try {
+     const service = await buildService();
+     const folderId = await getOrCreateFolder(service);
++
++    // Flush any pending debounced save so the uploaded file is current
++    const { flushSave } = require('./database');
++    flushSave();
++
+     const dbPath = getDbPath();
+ 
+     if (!fs.existsSync(dbPath)) {
+diff --git a/lib/estimates.js b/lib/estimates.js
+index f0c9dd7..b032274 100644
+--- a/lib/estimates.js
++++ b/lib/estimates.js
+@@ -166,7 +166,7 @@ function updateEstimate(estimateId, cart, options = {}) {
+   
+   return withTransaction((db) => {
+     // Delete existing items
+-    db.run(`DELETE FROM estimate_items WHERE estimate_id = ${estimateId}`);
++    db.run('DELETE FROM estimate_items WHERE estimate_id = ?', [estimateId]);
+ 
+     // Insert new items
+     const itemStmt = db.prepare(`
+@@ -262,7 +262,7 @@ function convertEstimateToInvoice(estimateId, options = {}) {
+     });
+ 
+     // Update estimate status
+-    db.run(`UPDATE estimates SET status = 'converted', updated_at = '${new Date().toISOString()}' WHERE id = ${estimateId}`);
++    db.run("UPDATE estimates SET status = 'converted', updated_at = ? WHERE id = ?", [new Date().toISOString(), estimateId]);
+ 
+     return { invoice, estimate };
+   });
+@@ -270,8 +270,8 @@ function convertEstimateToInvoice(estimateId, options = {}) {
+ 
+ function deleteEstimate(estimateId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM estimate_items WHERE estimate_id = ${estimateId}`);
+-    db.run(`DELETE FROM estimates WHERE id = ${estimateId}`);
++    db.run('DELETE FROM estimate_items WHERE estimate_id = ?', [estimateId]);
++    db.run('DELETE FROM estimates WHERE id = ?', [estimateId]);
+   });
+ }
+ 
+diff --git a/lib/invoices.js b/lib/invoices.js
+index 0aa0fa8..e910926 100644
+--- a/lib/invoices.js
++++ b/lib/invoices.js
+@@ -1,4 +1,4 @@
+-const { getDatabase, withTransaction } = require('./database');
++const { getDatabase, withTransaction, execToObject } = require('./database');
+ const { calculateCartTotals, generateNextNumber } = require('./cart');
+ const { adjustStock } = require('./items');
+ 
+@@ -368,6 +368,163 @@ function cancelInvoice(invoiceId, userId = null, reason = '') {
+   });
+ }
+ 
++// Edit an existing bill: reverses old stock, rebuilds lines and totals.
++function updateInvoice(invoiceId, payload = {}, userId = null) {
++  return withTransaction((db) => {
++    const invoice = getInvoice(invoiceId);
++    if (!invoice) {
++      throw new Error('Invoice not found');
++    }
++    if (invoice.status === 'cancelled') {
++      throw new Error('Cancelled bills cannot be edited.');
++    }
++    if (invoice.returns && invoice.returns.length > 0) {
++      throw new Error('Bill has returns and cannot be edited.');
++    }
++
++    const lines = payload.items || [];
++    if (lines.length === 0) {
++      throw new Error('Bill must have at least one item');
++    }
++
++    // Reverse stock for the old lines; remember each line's recorded cost so
++    // historical COGS stays fixed for items that remain on the bill
++    const originalCost = {};
++    for (const line of invoice.items) {
++      if (line.item_id) {
++        adjustStock(db, line.item_id, parseFloat(line.quantity));
++      }
++      originalCost[line.code] = parseFloat(line.purchase_price) || 0;
++    }
++    db.run('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
++
++    // Build a cart for calculateCartTotals, taking catalogue fields from items
++    const cart = {};
++    for (const entry of lines) {
++      const code = String(entry.code || '').trim();
++      const item = execToObject('SELECT * FROM items WHERE code = ?', [code]);
++      if (!item) {
++        throw new Error(`Item ${code} not found`);
++      }
++      const qty = parseFloat(entry.quantity);
++      const price = parseFloat(entry.price);
++      const lineDisc = parseFloat(entry.discount) || 0;
++      if (!(qty > 0)) {
++        throw new Error(`Quantity must be greater than 0 for ${item.name}`);
++      }
++      if (!(price >= 0)) {
++        throw new Error(`Price cannot be negative for ${item.name}`);
++      }
++      cart[code] = {
++        item_id: item.id,
++        name: item.name,
++        category: item.category || 'General',
++        price: price,
++        quantity: qty,
++        gst_percent: parseFloat(item.gst_percent) || 0,
++        discount: Math.max(0, lineDisc),
++        purchase_price: code in originalCost ? originalCost[code] : (parseFloat(item.purchase_price) || 0),
++        mrp: parseFloat(item.mrp) || 0,
++        stock: item.stock,
++        unit: item.unit || 'pcs'
++      };
++    }
++
++    const billDiscount = Math.max(0, parseFloat(payload.bill_discount) || 0);
++    const totals = calculateCartTotals(cart, billDiscount);
++    const total = totals.total;
++
++    const paymentMethod = payload.payment_method || invoice.payment_method || 'Cash';
++    let paidAmount;
++    if (payload.paid !== undefined && payload.paid !== null && payload.paid !== '') {
++      paidAmount = parseFloat(payload.paid) || 0;
++    } else {
++      paidAmount = parseFloat(invoice.paid) || 0;
++    }
++    paidAmount = Math.min(paidAmount, total);
++
++    let status;
++    if (paidAmount >= total - 0.009) {
++      status = 'paid';
++      paidAmount = total;
++    } else if (paidAmount > 0) {
++      status = 'partial';
++    } else {
++      status = 'unpaid';
++    }
++
++    let partyId = payload.party_id || null;
++    let partyName = payload.party_name || '';
++    let partyPhone = payload.party_phone || '';
++    if (partyId) {
++      const party = execToObject('SELECT * FROM parties WHERE id = ?', [partyId]);
++      if (party) {
++        partyName = party.name;
++        partyPhone = party.phone || partyPhone;
++      }
++    }
++
++    const itemStmt = db.prepare(`
++      INSERT INTO invoice_items (invoice_id, item_id, code, name, quantity, price, gst_percent,
++        discount, line_total, purchase_price)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++    `);
++    for (const item of totals.items) {
++      itemStmt.run([
++        invoiceId,
++        item.item_id,
++        item.code,
++        item.name,
++        item.quantity,
++        item.price,
++        item.gst_percent,
++        item.discount,
++        item.line_total,
++        item.purchase_price || 0
++      ]);
++      if (item.item_id) {
++        adjustStock(db, item.item_id, -parseFloat(item.quantity));
++      }
++    }
++    itemStmt.free();
++
++    db.run(
++      'UPDATE invoices SET party_id = ?, party_name = ?, party_phone = ?, subtotal = ?, discount = ?, tax = ?, cgst = ?, sgst = ?, igst = ?, total = ?, paid = ?, payment_method = ?, status = ? WHERE id = ?',
++      [partyId, partyName, partyPhone, totals.subtotal, totals.discount, totals.tax,
++        totals.cgst, totals.sgst, totals.igst, total, paidAmount, paymentMethod, status, invoiceId]
++    );
++
++    return getInvoice(invoiceId);
++  });
++}
++
++// Delete a bill: restores stock (unless already cancelled) and removes all rows.
++function deleteInvoice(invoiceId, userId = null) {
++  return withTransaction((db) => {
++    const invoice = getInvoice(invoiceId);
++    if (!invoice) {
++      throw new Error('Invoice not found');
++    }
++    if (invoice.returns && invoice.returns.length > 0) {
++      throw new Error('Bill has returns and cannot be deleted. Cancel it instead.');
++    }
++
++    if (invoice.status !== 'cancelled') {
++      for (const line of invoice.items) {
++        if (line.item_id) {
++          adjustStock(db, line.item_id, parseFloat(line.quantity));
++        }
++      }
++    }
++
++    db.run('DELETE FROM payments WHERE note = ?', [`Invoice ${invoice.invoice_no}`]);
++    db.run('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
++    db.run('DELETE FROM invoices WHERE id = ?', [invoiceId]);
++
++    return invoice;
++  });
++}
++
+ module.exports = {
+   completeSale,
+   listInvoices,
+@@ -375,5 +532,7 @@ module.exports = {
+   getInvoiceByNo,
+   recordInvoicePayment,
+   createSaleReturn,
+-  cancelInvoice
++  cancelInvoice,
++  updateInvoice,
++  deleteInvoice
+ };
+diff --git a/lib/items.js b/lib/items.js
+index ceb9325..59d0452 100644
+--- a/lib/items.js
++++ b/lib/items.js
+@@ -8,29 +8,29 @@ const LOW_STOCK_DEFAULT = 5;
+ 
+ function listItems(search = '', category = '') {
+   let query = 'SELECT * FROM items WHERE 1=1';
++  const params = [];
+ 
+   if (search) {
+-    const safeSearch = search.replace(/'/g, "''");
+-    query += ` AND (code LIKE '%${safeSearch}%' OR name LIKE '%${safeSearch}%')`;
++    query += ' AND (code LIKE ? OR name LIKE ?)';
++    params.push(`%${search}%`, `%${search}%`);
+   }
+ 
+   if (category) {
+-    const safeCategory = category.replace(/'/g, "''");
+-    query += ` AND category = '${safeCategory}'`;
++    query += ' AND category = ?';
++    params.push(category);
+   }
+ 
+   query += ' ORDER BY name';
+ 
+-  return execToObjects(query);
++  return execToObjects(query, params);
+ }
+ 
+ function getItemByCode(code) {
+-  const safeCode = code.trim().replace(/'/g, "''");
+-  return execToObject(`SELECT * FROM items WHERE code = '${safeCode}'`);
++  return execToObject('SELECT * FROM items WHERE code = ?', [code.trim()]);
+ }
+ 
+ function getItem(itemId) {
+-  return execToObject(`SELECT * FROM items WHERE id = ${itemId}`);
++  return execToObject('SELECT * FROM items WHERE id = ?', [itemId]);
+ }
+ 
+ function categories() {
+@@ -65,16 +65,16 @@ function saveItem(data, itemId = null) {
+   }
+ 
+   const fields = {
+-    code: (data.code || '').trim().replace(/'/g, "''"),
+-    name: (data.name || '').trim().replace(/'/g, "''"),
+-    category: (data.category || 'General').replace(/'/g, "''"),
+-    hsn: (data.hsn || '').replace(/'/g, "''"),
++    code: (data.code || '').trim(),
++    name: (data.name || '').trim(),
++    category: data.category || 'General',
++    hsn: data.hsn || '',
+     gst_percent: isNaN(parseFloat(data.gst_percent)) ? parseFloat(getSetting('default_gst', '18')) || 18 : parseFloat(data.gst_percent),
+     purchase_price: purchasePrice,
+     mrp: mrp,
+     sale_price: salePrice,
+     stock: parseFloat(data.stock) || 0,
+-    unit: (data.unit || 'pcs').replace(/'/g, "''"),
++    unit: data.unit || 'pcs',
+     low_stock: parseFloat(data.low_stock) || LOW_STOCK_DEFAULT,
+     updated_at: now
+   };
+@@ -87,12 +87,12 @@ function saveItem(data, itemId = null) {
+     throw new Error('Item code and name are required');
+   }
+ 
+-  const existingCode = execToObject(`SELECT * FROM items WHERE code = '${fields.code}' LIMIT 1`);
++  const existingCode = execToObject('SELECT * FROM items WHERE code = ? LIMIT 1', [fields.code]);
+   if (existingCode && existingCode.id !== itemId) {
+     throw new Error('An item with this barcode already exists');
+   }
+ 
+-  const existingName = execToObject(`SELECT * FROM items WHERE name = '${fields.name}' LIMIT 1`);
++  const existingName = execToObject('SELECT * FROM items WHERE name = ? LIMIT 1', [fields.name]);
+   if (existingName && existingName.id !== itemId) {
+     throw new Error('An item with this name already exists');
+   }
+@@ -100,23 +100,21 @@ function saveItem(data, itemId = null) {
+   return withTransaction((db) => {
+     try {
+       if (itemId) {
+-        db.run(`
+-          UPDATE items SET code='${fields.code}', name='${fields.name}', category='${fields.category}', hsn='${fields.hsn}', 
+-          gst_percent=${fields.gst_percent}, purchase_price=${fields.purchase_price}, mrp=${fields.mrp},
+-          sale_price=${fields.sale_price}, stock=${fields.stock}, unit='${fields.unit}', 
+-          low_stock=${fields.low_stock}, updated_at='${now}'
+-          WHERE id=${itemId}
+-        `);
+-        return execToObject(`SELECT * FROM items WHERE id = ${itemId}`);
++        db.run(
++          'UPDATE items SET code=?, name=?, category=?, hsn=?, gst_percent=?, purchase_price=?, mrp=?, sale_price=?, stock=?, unit=?, low_stock=?, updated_at=? WHERE id=?',
++          [fields.code, fields.name, fields.category, fields.hsn, fields.gst_percent,
++            fields.purchase_price, fields.mrp, fields.sale_price, fields.stock, fields.unit,
++            fields.low_stock, now, itemId]
++        );
++        return execToObject('SELECT * FROM items WHERE id = ?', [itemId]);
+       } else {
+-        db.run(`
+-          INSERT INTO items (code, name, category, hsn, gst_percent, purchase_price, mrp, sale_price,
+-            stock, unit, low_stock, created_at, updated_at)
+-          VALUES ('${fields.code}', '${fields.name}', '${fields.category}', '${fields.hsn}', ${fields.gst_percent},
+-          ${fields.purchase_price}, ${fields.mrp}, ${fields.sale_price}, ${fields.stock}, '${fields.unit}', ${fields.low_stock},
+-          '${now}', '${now}')
+-        `);
+-        return execToObject(`SELECT * FROM items WHERE code = '${fields.code}'`);
++        db.run(
++          'INSERT INTO items (code, name, category, hsn, gst_percent, purchase_price, mrp, sale_price, stock, unit, low_stock, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
++          [fields.code, fields.name, fields.category, fields.hsn, fields.gst_percent,
++            fields.purchase_price, fields.mrp, fields.sale_price, fields.stock, fields.unit,
++            fields.low_stock, now, now]
++        );
++        return execToObject('SELECT * FROM items WHERE code = ?', [fields.code]);
+       }
+     } catch (error) {
+       if (error.message && error.message.includes('UNIQUE constraint failed')) {
+@@ -129,13 +127,13 @@ function saveItem(data, itemId = null) {
+ 
+ function deleteItem(itemId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM items WHERE id = ${itemId}`);
++    db.run('DELETE FROM items WHERE id = ?', [itemId]);
+   });
+ }
+ 
+ function adjustStock(db, itemId, delta) {
+   const now = new Date().toISOString();
+-  db.run(`UPDATE items SET stock = stock + ${delta}, updated_at = '${now}' WHERE id = ${itemId}`);
++  db.run('UPDATE items SET stock = stock + ?, updated_at = ? WHERE id = ?', [delta, now, itemId]);
+ }
+ 
+ function seedItemsFromJson() {
+@@ -164,17 +162,16 @@ function seedItemsFromJson() {
+       }
+       
+       const price = parseFloat(info.price) || 0;
+-      const safeCode = String(code).trim().replace(/'/g, "''");
+-      const safeName = String(info.name).trim().replace(/'/g, "''");
+-      const safeCategory = String(info.category || 'General').trim().replace(/'/g, "''");
+-      
++      const safeCode = String(code).trim();
++      const safeName = String(info.name).trim();
++      const safeCategory = String(info.category || 'General').trim();
++
+       try {
+-        db.run(`
+-          INSERT OR IGNORE INTO items (code, name, category, hsn, gst_percent, purchase_price, mrp, sale_price,
+-            stock, unit, low_stock, created_at, updated_at)
+-          VALUES ('${safeCode}', '${safeName}', '${safeCategory}', '', 18, ${Math.round(price * 0.7 * 100) / 100}, ${price}, ${price},
+-          50, 'pcs', ${LOW_STOCK_DEFAULT}, '${now}', '${now}')
+-        `);
++        db.run(
++          'INSERT OR IGNORE INTO items (code, name, category, hsn, gst_percent, purchase_price, mrp, sale_price, stock, unit, low_stock, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
++          [safeCode, safeName, safeCategory, '', 18, Math.round(price * 0.7 * 100) / 100, price, price,
++            50, 'pcs', LOW_STOCK_DEFAULT, now, now]
++        );
+       } catch (error) {
+         console.error('Error seeding item:', code, error.message);
+       }
+diff --git a/lib/parties.js b/lib/parties.js
+index bd2d644..c6262c4 100644
+--- a/lib/parties.js
++++ b/lib/parties.js
+@@ -1,16 +1,17 @@
+-const { getDatabase, withTransaction, execToObject, execToObjects } = require('./database');
++const { withTransaction, execToObject, execToObjects } = require('./database');
+ 
+ function listParties(partyType = '') {
+   let query = 'SELECT * FROM parties WHERE 1=1';
++  const params = [];
+ 
+   if (partyType) {
+-    const safeType = partyType.replace(/'/g, "''");
+-    query += ` AND type = '${safeType}'`;
++    query += ' AND type = ?';
++    params.push(partyType);
+   }
+ 
+   query += ' ORDER BY name';
+ 
+-  const parties = execToObjects(query);
++  const parties = execToObjects(query, params);
+ 
+   // Calculate outstanding for each party
+   for (const party of parties) {
+@@ -21,7 +22,7 @@ function listParties(partyType = '') {
+ }
+ 
+ function getParty(partyId) {
+-  const party = execToObject(`SELECT * FROM parties WHERE id = ${partyId}`);
++  const party = execToObject('SELECT * FROM parties WHERE id = ?', [partyId]);
+   if (party) {
+     party.outstanding = calculatePartyOutstanding(party);
+   }
+@@ -34,12 +35,12 @@ function calculatePartyOutstanding(party) {
+   let bills = 0;
+ 
+   if (party.type === 'supplier') {
+-    const result = execToObject(`SELECT COALESCE(SUM(total - paid), 0) as due FROM purchases WHERE party_id = ${partyId}`);
++    const result = execToObject('SELECT COALESCE(SUM(total - paid), 0) as due FROM purchases WHERE party_id = ?', [partyId]);
+     if (result) {
+       bills = parseFloat(result.due) || 0;
+     }
+   } else {
+-    const result = execToObject(`SELECT COALESCE(SUM(total - paid), 0) as due FROM invoices WHERE party_id = ${partyId} AND status <> 'cancelled'`);
++    const result = execToObject("SELECT COALESCE(SUM(total - paid), 0) as due FROM invoices WHERE party_id = ? AND status <> 'cancelled'", [partyId]);
+     if (result) {
+       bills = parseFloat(result.due) || 0;
+     }
+@@ -47,42 +48,44 @@ function calculatePartyOutstanding(party) {
+ 
+   // Invoice-linked payment rows are already reflected in invoices.paid -
+   // only standalone receipts reduce outstanding further.
+-  const paymentResult = execToObject(`SELECT COALESCE(SUM(amount), 0) as paid FROM payments WHERE party_id = ${partyId} AND note NOT LIKE 'Invoice %'`);
++  const paymentResult = execToObject("SELECT COALESCE(SUM(amount), 0) as paid FROM payments WHERE party_id = ? AND note NOT LIKE 'Invoice %'", [partyId]);
+   const paidExtra = paymentResult ? parseFloat(paymentResult.paid) || 0 : 0;
+ 
+   return Math.round((opening + bills - paidExtra) * 100) / 100;
+ }
+ 
+ function saveParty(data, partyId = null) {
+-  const name = (data.name || '').trim().replace(/'/g, "''");
++  const name = (data.name || '').trim();
+   if (!name) {
+     throw new Error('Party name is required');
+   }
+ 
+   const validTypes = ['customer', 'supplier'];
+   const partyType = validTypes.includes(data.type) ? data.type : 'customer';
+-  const phone = (data.phone || '').replace(/'/g, "''");
+-  const email = (data.email || '').replace(/'/g, "''");
+-  const gstin = (data.gstin || '').replace(/'/g, "''");
+-  const pan = (data.pan || '').replace(/'/g, "''");
+-  const address = (data.address || '').replace(/'/g, "''");
+-  const city = (data.city || '').replace(/'/g, "''");
+-  const state = (data.state || '').replace(/'/g, "''");
+-  const pincode = (data.pincode || '').replace(/'/g, "''");
++  const phone = data.phone || '';
++  const email = data.email || '';
++  const gstin = data.gstin || '';
++  const pan = data.pan || '';
++  const address = data.address || '';
++  const city = data.city || '';
++  const state = data.state || '';
++  const pincode = data.pincode || '';
+   const openingBalance = parseFloat(data.opening_balance) || 0;
+   const creditLimit = parseFloat(data.credit_limit) || 0;
+   const creditDays = parseInt(data.credit_days) || 30;
+-  const billingName = (data.billing_name || '').replace(/'/g, "''");
+-  const billingAddress = (data.billing_address || '').replace(/'/g, "''");
+-  const billingGstin = (data.billing_gstin || '').replace(/'/g, "''");
++  const billingName = data.billing_name || '';
++  const billingAddress = data.billing_address || '';
++  const billingGstin = data.billing_gstin || '';
+ 
+   return withTransaction((db) => {
+     const now = new Date().toISOString();
+     if (partyId) {
+-      db.run(`UPDATE parties SET name='${name}', phone='${phone}', email='${email}', type='${partyType}', gstin='${gstin}', pan='${pan}', address='${address}', city='${city}', state='${state}', pincode='${pincode}', opening_balance=${openingBalance}, credit_limit=${creditLimit}, credit_days=${creditDays}, billing_name='${billingName}', billing_address='${billingAddress}', billing_gstin='${billingGstin}', updated_at='${now}' WHERE id=${partyId}`);
++      db.run('UPDATE parties SET name=?, phone=?, email=?, type=?, gstin=?, pan=?, address=?, city=?, state=?, pincode=?, opening_balance=?, credit_limit=?, credit_days=?, billing_name=?, billing_address=?, billing_gstin=?, updated_at=? WHERE id=?',
++        [name, phone, email, partyType, gstin, pan, address, city, state, pincode, openingBalance, creditLimit, creditDays, billingName, billingAddress, billingGstin, now, partyId]);
+       return getParty(partyId);
+     } else {
+-      db.run(`INSERT INTO parties (name, phone, email, type, gstin, pan, address, city, state, pincode, opening_balance, credit_limit, credit_days, billing_name, billing_address, billing_gstin, created_at, updated_at) VALUES ('${name}', '${phone}', '${email}', '${partyType}', '${gstin}', '${pan}', '${address}', '${city}', '${state}', '${pincode}', ${openingBalance}, ${creditLimit}, ${creditDays}, '${billingName}', '${billingAddress}', '${billingGstin}', '${now}', '${now}')`);
++      db.run('INSERT INTO parties (name, phone, email, type, gstin, pan, address, city, state, pincode, opening_balance, credit_limit, credit_days, billing_name, billing_address, billing_gstin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
++        [name, phone, email, partyType, gstin, pan, address, city, state, pincode, openingBalance, creditLimit, creditDays, billingName, billingAddress, billingGstin, now, now]);
+       const result = execToObject('SELECT * FROM parties WHERE id = last_insert_rowid()');
+       if (result) {
+         result.outstanding = calculatePartyOutstanding(result);
+@@ -94,26 +97,26 @@ function saveParty(data, partyId = null) {
+ 
+ function deleteParty(partyId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM parties WHERE id = ${partyId}`);
++    db.run('DELETE FROM parties WHERE id = ?', [partyId]);
+   });
+ }
+ 
+ function addPartyPayment(partyId, amount, method = 'Cash', note = '', userId = null) {
+   const now = new Date().toISOString();
+-  const safeNote = (note || '').replace(/'/g, "''");
+-  
++
+   return withTransaction((db) => {
+     // Check if party exists
+-    const party = execToObject(`SELECT * FROM parties WHERE id = ${partyId}`);
++    const party = execToObject('SELECT * FROM parties WHERE id = ?', [partyId]);
+     if (!party) {
+       throw new Error('Party not found');
+     }
+ 
+     // Money in from customers, money out to suppliers
+     const direction = party.type === 'supplier' ? 'out' : 'in';
+-    const uid = userId === null || userId === undefined ? 'NULL' : parseInt(userId, 10);
++    const uid = userId === null || userId === undefined ? null : parseInt(userId, 10);
+ 
+-    db.run(`INSERT INTO payments (party_id, amount, method, note, created_at, user_id, direction) VALUES (${partyId}, ${parseFloat(amount)}, '${method}', '${safeNote}', '${now}', ${uid}, '${direction}')`);
++    db.run('INSERT INTO payments (party_id, amount, method, note, created_at, user_id, direction) VALUES (?, ?, ?, ?, ?, ?, ?)',
++      [partyId, parseFloat(amount), method, note || '', now, uid, direction]);
+ 
+     return execToObject('SELECT * FROM payments WHERE id = last_insert_rowid()');
+   });
+diff --git a/lib/purchaseOrders.js b/lib/purchaseOrders.js
+index ed14958..39dad8d 100644
+--- a/lib/purchaseOrders.js
++++ b/lib/purchaseOrders.js
+@@ -163,7 +163,7 @@ function updatePurchaseOrderStatus(orderId, status) {
+ 
+   return withTransaction((db) => {
+     const now = new Date().toISOString();
+-    db.run(`UPDATE purchase_orders SET status = '${status}', updated_at = '${now}' WHERE id = ${orderId}`);
++    db.run('UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?', [status, now, orderId]);
+     return getPurchaseOrder(orderId);
+   });
+ }
+@@ -199,7 +199,7 @@ function convertPurchaseOrderToPurchase(orderId, options = {}) {
+     });
+ 
+     // Update purchase order status
+-    db.run(`UPDATE purchase_orders SET status = 'received', updated_at = '${new Date().toISOString()}' WHERE id = ${orderId}`);
++    db.run("UPDATE purchase_orders SET status = 'received', updated_at = ? WHERE id = ?", [new Date().toISOString(), orderId]);
+ 
+     return { purchase, purchaseOrder };
+   });
+@@ -207,8 +207,8 @@ function convertPurchaseOrderToPurchase(orderId, options = {}) {
+ 
+ function deletePurchaseOrder(orderId) {
+   return withTransaction((db) => {
+-    db.run(`DELETE FROM purchase_order_items WHERE order_id = ${orderId}`);
+-    db.run(`DELETE FROM purchase_orders WHERE id = ${orderId}`);
++    db.run('DELETE FROM purchase_order_items WHERE order_id = ?', [orderId]);
++    db.run('DELETE FROM purchase_orders WHERE id = ?', [orderId]);
+   });
+ }
+ 
+diff --git a/lib/settings.js b/lib/settings.js
+index a2dd0a7..6a3c3d9 100644
+--- a/lib/settings.js
++++ b/lib/settings.js
+@@ -1,7 +1,7 @@
+-const { getDatabase, withTransaction, execToObject, execToObjects } = require('./database');
++const { withTransaction, execToObject, execToObjects } = require('./database');
+ 
+ function getSetting(key, defaultValue = '') {
+-  const result = execToObject(`SELECT value FROM settings WHERE key = '${key}'`);
++  const result = execToObject('SELECT value FROM settings WHERE key = ?', [key]);
+   return result ? result.value : defaultValue;
+ }
+ 
+@@ -19,16 +19,15 @@ function getSettings() {
+ function setSettings(updates) {
+   withTransaction((db) => {
+     for (const [key, value] of Object.entries(updates)) {
+-      const safeValue = (value === null ? '' : String(value)).replace(/'/g, "''");
+-      const safeKey = key.replace(/'/g, "''");
+-      
++      const safeValue = value === null ? '' : String(value);
++
+       // First try to insert, if exists then update
+-      const exists = execToObject(`SELECT key FROM settings WHERE key = '${safeKey}'`);
+-      
++      const exists = execToObject('SELECT key FROM settings WHERE key = ?', [key]);
++
+       if (exists) {
+-        db.run(`UPDATE settings SET value = '${safeValue}' WHERE key = '${safeKey}'`);
++        db.run('UPDATE settings SET value = ? WHERE key = ?', [safeValue, key]);
+       } else {
+-        db.run(`INSERT INTO settings (key, value) VALUES ('${safeKey}', '${safeValue}')`);
++        db.run('INSERT INTO settings (key, value) VALUES (?, ?)', [key, safeValue]);
+       }
+     }
+   });
+diff --git a/lib/users.js b/lib/users.js
+index c40459d..89e8d4f 100644
+--- a/lib/users.js
++++ b/lib/users.js
+@@ -1,8 +1,8 @@
+ const bcrypt = require('bcryptjs');
+-const { getDatabase, withTransaction, execToObject, execToObjects } = require('./database');
++const { withTransaction, execToObject, execToObjects } = require('./database');
+ 
+ function authenticate(username, password) {
+-  const user = execToObject(`SELECT * FROM users WHERE username = '${username.trim()}'`);
++  const user = execToObject('SELECT * FROM users WHERE username = ?', [username.trim()]);
+   
+   if (!user) return null;
+ 
+@@ -23,11 +23,11 @@ function createUser(username, password, role) {
+   const userRole = validRoles.includes(role) ? role : 'cashier';
+   const passwordHash = bcrypt.hashSync(password, 10);
+   const now = new Date().toISOString();
+-  const safeUsername = username.trim().replace(/'/g, "''");
++  const trimmedUsername = username.trim();
+ 
+   return withTransaction((db) => {
+-    db.run(`INSERT INTO users (username, password_hash, role, created_at) VALUES ('${safeUsername}', '${passwordHash}', '${userRole}', '${now}')`);
+-    return execToObject(`SELECT id, username, role, created_at FROM users WHERE username = '${safeUsername}'`);
++    db.run('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)', [trimmedUsername, passwordHash, userRole, now]);
++    return execToObject('SELECT id, username, role, created_at FROM users WHERE username = ?', [trimmedUsername]);
+   });
+ }
+ 
+@@ -35,7 +35,7 @@ function updateUserPassword(userId, password) {
+   const passwordHash = bcrypt.hashSync(password, 10);
+   
+   return withTransaction((db) => {
+-    db.run(`UPDATE users SET password_hash = '${passwordHash}' WHERE id = ${userId}`);
++    db.run('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId]);
+   });
+ }
+ 
+@@ -49,12 +49,12 @@ function deleteUser(userId) {
+       throw new Error('Cannot delete the last user');
+     }
+ 
+-    db.run(`DELETE FROM users WHERE id = ${userId}`);
++    db.run('DELETE FROM users WHERE id = ?', [userId]);
+   });
+ }
+ 
+ function getUserById(userId) {
+-  return execToObject(`SELECT id, username, role, created_at FROM users WHERE id = ${userId}`);
++  return execToObject('SELECT id, username, role, created_at FROM users WHERE id = ?', [userId]);
+ }
+ 
+ module.exports = {
+diff --git a/package.json b/package.json
+index b3730ba..f34e231 100644
+--- a/package.json
++++ b/package.json
+@@ -27,6 +27,7 @@
+     "helmet": "^8.3.0",
+     "open": "^8.4.2",
+     "pdfkit": "^0.13.0",
++    "playwright": "^1.63.0",
+     "qrcode": "^1.5.3",
+     "sql.js": "^1.10.3",
+     "twilio": "^4.19.0"

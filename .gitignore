@@ -44,3 +44,12 @@ coverage/
 # Temporary files
 tmp/
 temp/
+# Local secrets / test artifacts
+cookies.txt
+data/session-secret.txt
+data/pos.db.tmp
+
+# QA artifacts (test DBs, browser profile, secrets)
+qa/data*/
+qa/ui/edge-profile/
+qa/c.txt

@@ -69,6 +69,8 @@ function can(minRole) {
   return (order[state.user?.role] || 0) >= order[minRole];
 }
 
+let statusSeq = 0;
+let statusTimer = null;
 function setStatus(msg, type = "") {
   state.status = msg || "";
   state.statusType = type;
@@ -76,6 +78,16 @@ function setStatus(msg, type = "") {
   if (el) {
     el.textContent = state.status;
     el.className = `status ${type}`;
+  }
+  const seq = ++statusSeq;
+  if (statusTimer) {
+    clearTimeout(statusTimer);
+    statusTimer = null;
+  }
+  if (state.status && type !== "error") {
+    statusTimer = setTimeout(() => {
+      if (seq === statusSeq) setStatus("");
+    }, 6000);
   }
 }
 
@@ -123,11 +135,11 @@ function render() {
       <div class="login-wrap">
         <form class="login-card" id="loginForm" aria-labelledby="loginTitle">
           <h1 id="loginTitle">Mart POS</h1>
-          <p>Sign in to start billing. Default: admin / admin</p>
+          <p>Sign in to start billing. Default: admin / admin — change it after first login</p>
           <label for="username">Username</label>
-          <input name="username" id="username" value="admin" autocomplete="username" required aria-required="true" />
+          <input name="username" id="username" autocomplete="username" required aria-required="true" />
           <label for="password">Password</label>
-          <input name="password" id="password" type="password" value="admin" autocomplete="current-password" required aria-required="true" />
+          <input name="password" id="password" type="password" autocomplete="current-password" required aria-required="true" />
           <div class="status ${state.statusType}" style="margin:12px 0" role="alert" aria-live="polite">${esc(state.status)}</div>
           <button class="btn wide" type="submit">Sign in</button>
         </form>
@@ -144,6 +156,10 @@ function render() {
         state.settings = data.settings || {};
         state.view = "pos";
         await bootApp();
+        if (data.must_change_password && state.user.role === "admin") {
+          await switchView("settings");
+          setStatus("Default password in use — please change it under Settings", "error");
+        }
       } catch (err) {
         state.status = err.message;
         state.statusType = "error";
@@ -269,6 +285,15 @@ function render() {
 }
 
 async function switchView(view) {
+  setStatus("");
+  if (view === "settings" && !can("admin")) {
+    setStatus("Not allowed for this role", "error");
+    return;
+  }
+  if (["purchases", "expenses", "reports", "new-purchase"].includes(view) && !can("manager")) {
+    setStatus("Not allowed for this role", "error");
+    return;
+  }
   state.view = view;
   render();
   try {
@@ -577,7 +602,10 @@ function renderPos(view) {
           <div class="items-table-section">
             <div class="section-header">
               <h3>Order Items</h3>
-              <span class="item-count">${c.items.length} items</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="item-count">${c.items.length} items</span>
+                <button class="btn ghost sm" id="clearCartBtn" aria-label="Clear all items from the order" ${c.items.length ? "" : "disabled"}>Clear</button>
+              </div>
             </div>
             
             <div class="items-table-container">
@@ -591,6 +619,7 @@ function renderPos(view) {
                     <th>Qty</th>
                     <th>Discount</th>
                     <th>Total</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -612,9 +641,10 @@ function renderPos(view) {
                       </td>
                       <td><input type="number" min="0" step="1" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
                       <td>₹ ${money(item.line_total)}</td>
+                      <td><button class="btn danger sm" data-remove="${esc(item.code)}" aria-label="Remove ${esc(item.name)} from order">✕</button></td>
                     </tr>`
                       )
-                      .join("") || `<tr><td colspan="7" class="empty-cart">Scan or search products to add them to the order</td></tr>`
+                      .join("") || `<tr><td colspan="8" class="empty-cart">Scan or search products to add them to the order</td></tr>`
                   }
                 </tbody>
               </table>
@@ -864,45 +894,30 @@ function renderPos(view) {
   };
   
   view.addEventListener('keydown', keyboardHandler);
-  const searchInput = view.querySelector("#productSearch");
-  const addBtn = view.querySelector("#addBtn");
-  
-  const doAdd = async () => {
-    const v = searchInput.value.trim();
-    if (!v) return;
-    applyCart(await api("/add_item", { method: "POST", body: { query: v } }));
-    searchInput.value = "";
-    searchInput.focus();
-  };
-  
-  addBtn.addEventListener("click", doAdd);
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); doAdd(); }
-  });
-  
+
   // Keep search bar focused, but do not steal focus from other inputs
   const keepFocus = () => {
     const modal = document.querySelector(".scanner-modal[aria-hidden='false']");
-    if (modal || !searchInput) return;
+    if (modal || !search) return;
     const active = document.activeElement;
     const isFormControl = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA' || active.tagName === 'BUTTON');
-    if (!isFormControl && active !== searchInput) {
-      searchInput.focus();
+    if (!isFormControl && active !== search) {
+      search.focus();
     }
   };
   state.focusInterval = setInterval(keepFocus, 500);
   view.querySelectorAll("[data-qty]").forEach((input) => {
     inputChange(input, async () => {
-      await api("/update_item", { method: "POST", body: { code: input.dataset.qty, quantity: Number(input.value) } }).then(
-        applyCart
-      );
+      await api("/update_item", { method: "POST", body: { code: input.dataset.qty, quantity: Number(input.value) } })
+        .then(applyCart)
+        .catch((err) => setStatus(err.message, "error"));
     });
   });
   view.querySelectorAll("[data-discount]").forEach((input) => {
     inputChange(input, async () => {
-      await api("/update_item", { method: "POST", body: { code: input.dataset.discount, discount: Number(input.value) } }).then(
-        applyCart
-      );
+      await api("/update_item", { method: "POST", body: { code: input.dataset.discount, discount: Number(input.value) } })
+        .then(applyCart)
+        .catch((err) => setStatus(err.message, "error"));
     });
   });
   view.querySelectorAll("[data-qty-plus]").forEach((btn) => {
@@ -913,7 +928,9 @@ function renderPos(view) {
       const currentValue = parseFloat(currentInput.value) || 0;
       const newValue = currentValue + 1;
       currentInput.value = newValue;
-      await api("/update_item", { method: "POST", body: { code, quantity: newValue } }).then(applyCart);
+      await api("/update_item", { method: "POST", body: { code, quantity: newValue } })
+        .then(applyCart)
+        .catch((err) => setStatus(err.message, "error"));
     });
   });
   view.querySelectorAll("[data-qty-minus]").forEach((btn) => {
@@ -922,13 +939,28 @@ function renderPos(view) {
       const code = btn.dataset.qtyMinus;
       const currentInput = view.querySelector(`[data-qty="${code}"]`);
       const currentValue = parseFloat(currentInput.value) || 0;
-      const newValue = Math.max(0.01, currentValue - 1);
+      const newValue = Math.max(0, currentValue - 1);
       currentInput.value = newValue;
-      await api("/update_item", { method: "POST", body: { code, quantity: newValue } }).then(applyCart);
+      await api("/update_item", { method: "POST", body: { code, quantity: newValue } })
+        .then(applyCart)
+        .catch((err) => setStatus(err.message, "error"));
     });
   });
+  view.querySelectorAll("[data-remove]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await api("/remove_item", { method: "POST", body: { code: btn.dataset.remove } })
+        .then(applyCart)
+        .catch((err) => setStatus(err.message, "error"));
+    });
+  });
+  document.getElementById("clearCartBtn").addEventListener("click", clearCart);
   document.getElementById("billDiscount").addEventListener("change", async (e) => {
-    applyCart(await api("/api/cart/discount", { method: "POST", body: { discount: Number(e.target.value) } }));
+    try {
+      applyCart(await api("/api/cart/discount", { method: "POST", body: { discount: Number(e.target.value) } }));
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
   document.getElementById("customerName").addEventListener("input", (e) => {
     state.customerName = e.target.value;
@@ -996,6 +1028,15 @@ function applyCart(data) {
   state.customerName = state.cart.party_name === "Walk-in Customer" ? "" : state.cart.party_name || "";
   state.customerPhone = state.cart.party_phone || "";
   renderView();
+}
+
+async function clearCart() {
+  try {
+    applyCart(await api("/api/cart/clear", { method: "POST", body: {} }));
+    setStatus("Cart cleared", "ok");
+  } catch (err) {
+    setStatus(err.message, "error");
+  }
 }
 
 function showCustomerSuggestions(type, value) {
@@ -1422,10 +1463,11 @@ function renderSales(view) {
                 <td>${esc(i.invoice_no)}</td><td>${esc(i.party_name || "Walk-in")}</td>
                 <td>₹ ${money(i.total)}</td><td>₹ ${money(i.paid)}</td><td>${esc(i.status)}</td>
                 <td>
-                  <a class="btn ghost sm" href="/invoice_pdf?id=${i.id}" target="_blank">PDF</a>
+                  <button class="btn ghost sm" data-print="${i.id}">Print</button>
                   ${i.status !== "cancelled" && Number(i.total) > Number(i.paid) ? `<button class="btn sm" data-pay="${i.id}">Pay</button>` : ""}
                   ${can("manager") && i.status !== "cancelled" ? `<button class="btn ghost sm" data-ret="${i.id}">Return</button>` : ""}
-                  ${can("manager") && i.status !== "cancelled" ? `<button class="btn danger sm" data-cancel="${i.id}">Cancel</button>` : ""}
+                  ${can("manager") && state.settings.bill_passcode_set && i.status !== "cancelled" ? `<button class="btn ghost sm" data-edit="${i.id}">Edit</button>` : ""}
+                  ${can("manager") && state.settings.bill_passcode_set ? `<button class="btn danger sm" data-del="${i.id}">Delete</button>` : ""}
                 </td>
               </tr>`
             )
@@ -1434,28 +1476,293 @@ function renderSales(view) {
       </table>
     </div>`;
   view.querySelectorAll("[data-pay]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const amount = prompt("Amount received");
-      if (!amount) return;
-      await api(`/api/invoices/${btn.dataset.pay}/payment`, { method: "POST", body: { amount } });
-      await loadSales();
+    btn.addEventListener("click", () => {
+      const inv = state.invoices.find((x) => String(x.id) === btn.dataset.pay);
+      if (inv) openReceivePayment(inv);
     });
   });
   view.querySelectorAll("[data-ret]").forEach((btn) => {
     btn.addEventListener("click", () => openReturn(btn.dataset.ret));
   });
-  view.querySelectorAll("[data-cancel]").forEach((btn) => {
+  view.querySelectorAll("[data-print]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const reason = prompt("Reason for cancelling this bill:", "");
+      try {
+        const inv = (await api(`/api/invoices/${btn.dataset.print}`)).invoice;
+        if (window.ReceiptPrinter) ReceiptPrinter.print(inv);
+        else window.open(`/invoice_pdf?id=${inv.id}`, "_blank");
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
+  });
+  view.querySelectorAll("[data-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => openEditBill(btn.dataset.edit));
+  });
+  view.querySelectorAll("[data-del]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const inv = (state.invoices || []).find((x) => String(x.id) === String(btn.dataset.del));
+      const passcode = await askPasscode(`Delete bill ${inv ? inv.invoice_no : ""}`);
+      if (passcode === null) return;
+      const reason = prompt("Reason for deleting");
       if (reason === null) return;
       try {
-        await api(`/api/invoices/${btn.dataset.cancel}/cancel`, { method: "POST", body: { reason } });
-        setStatus("Bill cancelled", "ok");
+        await api(`/api/invoices/${btn.dataset.del}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
+        setStatus("Bill deleted", "ok");
         await loadSales();
       } catch (err) {
         setStatus(err.message, "error");
       }
     });
+  });
+}
+
+function openReceivePayment(inv) {
+  const due = Math.max(0, Number(inv.total) - Number(inv.paid));
+  const methods = ["Cash", "UPI", "Card"];
+  openModal(
+    `<form id="payForm">
+      <h3>Receive payment · ${esc(inv.invoice_no)}</h3>
+      <p class="help">${esc(inv.party_name || "Walk-in")} · Bill ₹ ${money(inv.total)} · Paid ₹ ${money(inv.paid)} · <b>Due ₹ ${money(due)}</b></p>
+      <div class="form-grid">
+        <label>Amount received
+          <input name="amount" type="number" min="0.01" max="${due}" step="any" value="${money(due).replace(/,/g, "")}" required autofocus />
+        </label>
+        <label>Payment method
+          <select name="method">${methods.map((m) => `<option value="${m}">${m}</option>`).join("")}</select>
+        </label>
+      </div>
+    </form>`,
+    "payForm"
+  );
+  const form = document.getElementById("payForm");
+  const input = form.querySelector('input[name="amount"]');
+  input.focus();
+  input.select();
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(form).entries());
+    const amount = parseFloat(fd.amount);
+    if (!(amount > 0)) return setStatus("Enter a valid amount", "error");
+    if (amount > due + 0.009) return setStatus(`Amount cannot exceed due ₹ ${money(due)}`, "error");
+    try {
+      await api(`/api/invoices/${inv.id}/payment`, { method: "POST", body: { amount, method: fd.method } });
+      closeModal();
+      setStatus(`Received ₹ ${money(amount)} for ${inv.invoice_no}`, "ok");
+      await loadSales();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+  });
+}
+
+function askPasscode(title) {
+  return new Promise((resolve) => {
+    openModal(
+      `<form id="pcForm"><h3>${esc(title)}</h3><p class="help">Enter the bill passcode to continue.</p><input name="passcode" type="password" inputmode="numeric" autofocus required /></form>`,
+      "pcForm"
+    );
+    document.getElementById("pcForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const value = new FormData(e.target).get("passcode");
+      closeModal();
+      resolve(value);
+    });
+    document.getElementById("closeModal").addEventListener("click", () => resolve(null), { once: true });
+    const input = document.querySelector('#pcForm input[name="passcode"]');
+    if (input) input.focus();
+  });
+}
+
+async function openEditBill(id) {
+  let inv;
+  try {
+    inv = (await api(`/api/invoices/${id}`)).invoice;
+  } catch (err) {
+    return setStatus(err.message, "error");
+  }
+  const passcode = await askPasscode(`Edit bill ${inv.invoice_no}`);
+  if (passcode === null) return;
+
+  if (!state.parties.length) await loadParties(false);
+  if (!state.items.length) await loadItems(false);
+  const customers = (state.parties || []).filter((p) => p.type !== "supplier");
+
+  const lines = (inv.items || []).map((it) => ({
+    code: it.code,
+    name: it.name,
+    item_id: it.item_id,
+    quantity: Number(it.quantity),
+    price: Number(it.price),
+    discount: Number(it.discount) || 0,
+    gst_percent: Number(it.gst_percent) || 0
+  }));
+
+  const methods = ["Cash", "UPI", "Card"];
+  if (inv.payment_method && !methods.includes(inv.payment_method)) methods.push(inv.payment_method);
+
+  const lineTotal = (l) => Math.max(0, l.quantity * l.price - l.discount) * (1 + l.gst_percent / 100);
+
+  openModal(
+    `<form id="editBillForm">
+      <h3>Edit ${esc(inv.invoice_no)} <span class="muted" style="font-size:13px">${esc(fmtD(inv.created_at))}</span></h3>
+      <div class="form-grid">
+        <label>Customer
+          <select name="party_id">
+            <option value="">Walk-in / manual</option>
+            ${customers.map((p) => `<option value="${p.id}" ${Number(inv.party_id) === Number(p.id) ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Customer name
+          <input name="party_name" value="${esc(inv.party_name || "")}" />
+        </label>
+        <label>Phone
+          <input name="party_phone" value="${esc(inv.party_phone || "")}" />
+        </label>
+      </div>
+      <div class="table-wrap" style="margin:10px 0">
+        <table>
+          <thead><tr><th>Item</th><th style="width:90px">Qty</th><th style="width:100px">Price</th><th style="width:90px">Disc</th><th>Line total</th><th></th></tr></thead>
+          <tbody id="ebLines"></tbody>
+        </table>
+      </div>
+      <input id="ebSearch" type="text" placeholder="Search item by code or name to add…" autocomplete="off" />
+      <div id="ebSugs" class="table-wrap"></div>
+      <div class="form-grid" style="margin-top:10px">
+        <label>Bill discount
+          <input name="bill_discount" id="ebDisc" type="number" min="0" step="any" value="${money(inv.discount)}" />
+        </label>
+        <label>Payment method
+          <select name="payment_method">
+            ${methods.map((m) => `<option value="${m}" ${inv.payment_method === m ? "selected" : ""}>${m}</option>`).join("")}
+          </select>
+        </label>
+        <label>Paid amount
+          <input name="paid" type="number" min="0" step="any" value="${money(inv.paid)}" />
+        </label>
+        <label>Reason (optional)
+          <input name="reason" placeholder="e.g. wrong quantity" />
+        </label>
+      </div>
+      <div id="ebTotals" class="muted" style="margin-top:8px"></div>
+    </form>`,
+    "editBillForm",
+    "modal-wide"
+  );
+
+  const tbody = document.getElementById("ebLines");
+  const recalc = () => {
+    const sub = lines.reduce((a, l) => a + Math.max(0, l.quantity * l.price - l.discount), 0);
+    const taxRaw = lines.reduce((a, l) => a + Math.max(0, l.quantity * l.price - l.discount) * l.gst_percent / 100, 0);
+    const disc = Math.max(0, parseFloat(document.getElementById("ebDisc").value) || 0);
+    const after = Math.max(0, sub - disc);
+    const tax = sub > 0 && disc > 0 ? taxRaw * (after / sub) : taxRaw;
+    document.getElementById("ebTotals").textContent =
+      `Subtotal ₹ ${money(sub)} · Discount ₹ ${money(disc)} · Tax ₹ ${money(tax)} · Total ₹ ${money(after + tax)}`;
+  };
+
+  const renderLines = () => {
+    tbody.innerHTML = lines
+      .map(
+        (l, idx) => `<tr>
+          <td>${esc(l.name)} <span class="muted">${esc(l.code)}</span></td>
+          <td><input data-eb="q" data-idx="${idx}" type="number" min="0" step="any" value="${l.quantity}" style="width:80px" /></td>
+          <td><input data-eb="p" data-idx="${idx}" type="number" min="0" step="any" value="${l.price}" style="width:90px" /></td>
+          <td><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${l.discount}" style="width:80px" /></td>
+          <td>₹ ${money(lineTotal(l))}</td>
+          <td><button type="button" class="btn danger sm" data-eb-del="${idx}">✕</button></td>
+        </tr>`
+      )
+      .join("");
+    tbody.querySelectorAll("[data-eb]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const l = lines[Number(inp.dataset.idx)];
+        if (!l) return;
+        const v = parseFloat(inp.value) || 0;
+        if (inp.dataset.eb === "q") l.quantity = v;
+        if (inp.dataset.eb === "p") l.price = v;
+        if (inp.dataset.eb === "d") l.discount = v;
+        const row = inp.closest("tr");
+        row.children[4].textContent = `₹ ${money(lineTotal(l))}`;
+        recalc();
+      });
+    });
+    tbody.querySelectorAll("[data-eb-del]").forEach((b) => {
+      b.addEventListener("click", () => {
+        lines.splice(Number(b.dataset.ebDel), 1);
+        renderLines();
+        recalc();
+      });
+    });
+  };
+  renderLines();
+  recalc();
+
+  document.getElementById("ebDisc").addEventListener("input", recalc);
+
+  const searchInput = document.getElementById("ebSearch");
+  const sugs = document.getElementById("ebSugs");
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) {
+      sugs.innerHTML = "";
+      return;
+    }
+    const matches = (state.items || [])
+      .filter((it) => String(it.code).toLowerCase().includes(q) || String(it.name).toLowerCase().includes(q))
+      .slice(0, 8);
+    sugs.innerHTML = matches
+      .map((it) => `<div class="toolbar"><button type="button" class="btn ghost sm" data-eb-add="${esc(it.code)}">${esc(it.code)} · ${esc(it.name)} · ₹ ${money(it.sale_price)}</button></div>`)
+      .join("");
+    sugs.querySelectorAll("[data-eb-add]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const it = (state.items || []).find((x) => String(x.code) === b.dataset.ebAdd);
+        if (!it) return;
+        const existing = lines.find((l) => l.code === it.code);
+        if (existing) {
+          existing.quantity += 1;
+        } else {
+          lines.push({
+            code: it.code,
+            name: it.name,
+            item_id: it.id,
+            quantity: 1,
+            price: Number(it.sale_price) || 0,
+            discount: 0,
+            gst_percent: Number(it.gst_percent) || 0
+          });
+        }
+        searchInput.value = "";
+        sugs.innerHTML = "";
+        renderLines();
+        recalc();
+      });
+    });
+  });
+
+  document.getElementById("editBillForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api(`/api/invoices/${id}`, {
+        method: "PUT",
+        body: {
+          passcode,
+          reason: fd.get("reason") || "",
+          items: lines.map((l) => ({ code: l.code, quantity: l.quantity, price: l.price, discount: l.discount })),
+          bill_discount: parseFloat(fd.get("bill_discount")) || 0,
+          party_id: fd.get("party_id") || null,
+          party_name: fd.get("party_name") || "",
+          party_phone: fd.get("party_phone") || "",
+          payment_method: fd.get("payment_method") || "Cash",
+          paid: fd.get("paid")
+        }
+      });
+      closeModal();
+      setStatus("Bill updated", "ok");
+      await loadSales();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
 }
 
@@ -1819,7 +2126,7 @@ function renderExpenses(view) {
   view.innerHTML = `
     <form class="toolbar" id="expForm">
       <input name="category" placeholder="Category (rent, power...)" />
-      <input name="amount" type="number" step="1" placeholder="Amount" />
+      <input name="amount" type="number" required min="0.01" step="any" placeholder="Amount" />
       <input name="note" class="grow" placeholder="Note" />
       <button class="btn">Add expense</button>
     </form>
@@ -1841,8 +2148,12 @@ function renderExpenses(view) {
   document.getElementById("expForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    await api("/api/expenses", { method: "POST", body: fd });
-    await loadExpenses();
+    try {
+      await api("/api/expenses", { method: "POST", body: fd });
+      await loadExpenses();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
   view.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -1926,6 +2237,12 @@ function renderSettings(view) {
             }).join("")}
         </div>
 
+        <h3 class="full">Bill security</h3>
+        <label>Bill edit/delete passcode
+          <input name="bill_passcode" type="password" inputmode="numeric" pattern="\\d{4,8}" placeholder="${s.bill_passcode_set ? "Passcode is set — enter new to change" : "4-8 digits"}" autocomplete="new-password" />
+        </label>
+        ${s.bill_passcode_set ? `<label class="check"><input type="checkbox" name="bill_passcode_clear" /> Remove passcode</label>` : ""}
+
         <div class="full"><button class="btn" type="submit">Save settings</button></div>
       </form>
       <div class="card">
@@ -1994,9 +2311,25 @@ function renderSettings(view) {
     for (const k of Object.keys(ReceiptPrinter.DEFAULTS).filter((x) => x.startsWith("show_"))) {
       fd[`receipt_${k}`] = e.target.querySelector(`[name="receipt_${k}"]`).checked ? "1" : "0";
     }
-    const data = await api("/api/settings", { method: "POST", body: fd });
-    state.settings = data.settings;
-    setStatus("Settings saved", "ok");
+    if (!fd.bill_passcode || !String(fd.bill_passcode).trim()) {
+      delete fd.bill_passcode;
+    }
+    const clearBox = e.target.querySelector('[name="bill_passcode_clear"]');
+    if (clearBox && clearBox.checked) {
+      fd.bill_passcode_clear = "1";
+    } else {
+      delete fd.bill_passcode_clear;
+    }
+    try {
+      const data = await api("/api/settings", { method: "POST", body: fd });
+      state.settings = data.settings;
+      const pcInput = e.target.querySelector('[name="bill_passcode"]');
+      if (pcInput) pcInput.value = "";
+      if (clearBox) clearBox.checked = false;
+      setStatus("Settings saved", "ok");
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
   document.getElementById("setForm").addEventListener("input", refreshReceiptPreview);
   document.getElementById("setForm").addEventListener("change", refreshReceiptPreview);
@@ -2049,9 +2382,18 @@ function renderSettings(view) {
   document.getElementById("userForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    const data = await api("/api/users", { method: "POST", body: fd });
-    state.users = data.users;
-    renderView();
+    try {
+      const data = await api("/api/users", { method: "POST", body: fd });
+      if (data.user) {
+        state.users.push(data.user);
+      } else {
+        await loadSettings();
+        return;
+      }
+      renderView();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
   view.querySelectorAll("[data-delu]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -2096,18 +2438,23 @@ async function startScanner() {
     return;
   }
   modal.setAttribute("aria-hidden", "false");
-  await Quagga.init({
-    inputStream: {
-      name: "Live",
-      type: "LiveStream",
-      target: document.querySelector("#scanner"),
-      constraints: { facingMode: "environment" },
-    },
-    decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"] },
-    locate: true,
-  });
-  Quagga.start();
-  quaggaRunning = true;
+  try {
+    await Quagga.init({
+      inputStream: {
+        name: "Live",
+        type: "LiveStream",
+        target: document.querySelector("#scanner"),
+        constraints: { facingMode: "environment" },
+      },
+      decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader", "upc_reader", "upc_e_reader"] },
+      locate: true,
+    });
+    Quagga.start();
+    quaggaRunning = true;
+  } catch (err) {
+    modal.setAttribute("aria-hidden", "true");
+    setStatus("Camera unavailable or permission denied", "error");
+  }
 }
 
 function stopScanner() {
@@ -2237,6 +2584,10 @@ async function start() {
   if (me.user) {
     state.user = me.user;
     await bootApp();
+    if (me.must_change_password && state.user.role === "admin") {
+      await switchView("settings");
+      setStatus("Default password in use — please change it under Settings", "error");
+    }
   } else {
     render();
   }

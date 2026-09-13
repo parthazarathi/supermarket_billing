@@ -1,0 +1,43 @@
+user: admin
+CART ["TEST-UI-001x3"] subtotal 240 total 240
+BILL-DISCOUNT discount: 10 total: 230
+PAID> TOTAL(total=230) change shown: ₹ 270.00
+UPI qr shown: true src: http://localhost:5056/upi_qr?am=230.00&tn=Mart%20POS
+PAID<TOTAL status: Saved INV-20260913-0011
+  invoice: {"id":1,"invoice_no":"INV-20260913-0001","party_id":1,"party_name":"Walk-in Customer","party_phone":"","subtotal":120,"discount":0,"tax":0,"cgst":0,"sgst":0,"igst":0,"total":120,"paid":120,"payment_method":"Cash","status":"paid","user_id":1,"created_at":"2026-09-13T13:35:18.240Z","cancelled_by":null,"cancelled_at":null,"cancel_reason":""}
+cart pre-refresh: ["TEST-UI-001x1"]
+REFRESH-MID-CART preserved: ["TEST-UI-001x1"]
+RECEIPT-PRINT iframe html len: 2308 | inv_no: true | paid<total Due line: false | paymethod: true
+RPT custom-range status: Default password in use — please change it under Settings
+RPT from>to status: Default password in use — please change it under Settings
+RPT preset Yesterday status: Default password in use — please change it under Settings
+RPT preset ThisMonth status: Default password in use — please change it under Settings
+RPT preset Today status: Default password in use — please change it under Settings
+RPT CSV len: 223 status: Report exported head: Bharathi Supermarket | Report: Business Overview | Period: 2026-09-13 to 2026-09-13
+RPT on-screen table head: "DATE\tBILLS\tITEMS SOLD\tSALES\tRETURNS\tNET SALES\tPROFIT\n13-09-2026\t10\t15\t₹ 930.00\t₹ 60.00\t₹ 855.00\t₹ 271.00\nTotal\t10\t15\t₹ 930.00\t₹ 60.00\t₹ 855.00\t₹ 271.00"
+RPT print popup html len: 1101 printed: true status: Report exported
+RPT categories: ["overview","sales","inventory","purchases","profit-loss","payments","customers","suppliers","returns","gst","cashiers","audit"]
+RPT cat=overview status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=sales status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=inventory status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=purchases status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=profit-loss status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=payments status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=customers status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=suppliers status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=returns status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=gst status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=cashiers status='Report exported' reports=[] bad=[] consoleErr=0
+RPT cat=audit status='Report exported' reports=[] bad=[] consoleErr=0
+RPT keys visible in last cat: []
+ITEM empty-submit msg: Barcode / Code is required
+ITEM negative-price msg: Purchase price must be greater than 0
+ITEM sale<purchase msg: Sale price must be higher than purchase price
+ITEM dup-code msg: An item with this barcode already exists
+CASHIER created, users: []
+CASHIER login user: TEST-UI-CASHIER:cashier
+CASHIER nav items: ["dashboard","pos","items","parties","sales"]
+CASHIER switchView('settings') view= settings status: Report exported bad: [] err: 
+CASHIER switchView('reports') view= reports status: Report exported bad: ["403 http://localhost:5056/api/reports/audit?from=2026-09-13&to=2026-09-13&page=1&per_page=50&pos_id=b65f8bb3-fc83-4c8e-821e-73ff5bf0ece1"] err: 
+CASHIER switchView('purchases') view= purchases status: Not allowed for this role bad: ["403 http://localhost:5056/api/purchases?pos_id=b65f8bb3-fc83-4c8e-821e-73ff5bf0ece1"] err: 
+CASHIER switchView('expenses') view= expenses status: Not allowed for this role bad: ["403 http://localhost:5056/api/expenses?pos_id=b65f8bb3-fc83-4c8e-821e-73ff5bf0ece1"] err: 

@@ -844,7 +844,7 @@ const ReportsModule = (() => {
       return;
     }
     if (def.picker && !s.filters[def.picker.param]) {
-      el.innerHTML = `<div class="rpt-empty">Select a ${esc(def.picker.label.toLowerCase())} to view this report.</div>`;
+      el.innerHTML = `<div class="rpt-empty">Select ${/^[aeiou]/i.test(def.picker.label) ? 'an' : 'a'} ${esc(def.picker.label.toLowerCase())} to view this report.</div>`;
       return;
     }
     if (!s.data) {
@@ -1094,7 +1094,7 @@ const ReportsModule = (() => {
     const s = rpt();
     const def = currentDef();
     if (def.custom === 'overview') {
-      const cols = [C('day', 'Date'), C('bills', 'Bills'), C('items', 'Items'), M('gross', 'Sales'), M('returns', 'Returns'), M('net_sales', 'Net Sales'), M('profit', 'Profit')];
+      const cols = [C('day', 'Date'), C('bills', 'Bills', 'num', true), C('items', 'Items', 'qty', true), M('gross', 'Sales'), M('returns', 'Returns'), M('net_sales', 'Net Sales'), M('profit', 'Profit')];
       return { columns: cols, rows: (s.data && s.data.by_day) || [] };
     }
     if (def.server) {
