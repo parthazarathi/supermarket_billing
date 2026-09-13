@@ -1385,3 +1385,84 @@ kbd {
   .items-table th, .items-table td { padding: 8px 10px; }
   .payment-methods { flex-direction: column; }
 }
+
+/* Modern polish */
+:root {
+  --primary-alpha: rgba(99, 102, 241, 0.12);
+  --success-alpha: rgba(16, 185, 129, 0.12);
+  --danger-alpha: rgba(239, 68, 68, 0.12);
+}
+body { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+.content { animation: fadeIn 0.25s ease; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.nav-btn { position: relative; }
+.nav-btn.active { background: rgba(255, 255, 255, 0.22); }
+.nav-btn.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 2px;
+  background: #ffffff;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+}
+.table-wrap {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+th {
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+tbody tr:hover { background: var(--bg-secondary); }
+input, select, textarea {
+  border: 1.5px solid var(--border-light);
+  background: var(--surface);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-alpha);
+}
+.btn { letter-spacing: 0.2px; }
+.modal-card {
+  border-radius: 24px;
+  padding: 28px;
+  animation: slideUp 0.25s ease;
+}
+.items-table-section,
+.customer-summary-section,
+.order-summary,
+.pos-topbar {
+  border: 1px solid var(--border-light);
+}
+.payment-method { border-radius: var(--radius-lg); }
+.qty-btn { border-radius: var(--radius-sm); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-medium); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-dark); }
