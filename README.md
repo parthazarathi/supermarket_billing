@@ -78,19 +78,31 @@ This is backup/restore of the local database, not live two-way sync.
 2. Download `credentials.json` into the app data folder:
    - Web/dev: `data\credentials.json`
    - EXE: `%LOCALAPPDATA%\MartPOS\credentials.json`
-3. Settings → **Connect**, sign in with Google, then **Backup now**.
-4. Turn on **Auto backup after each sale** if you want a Drive copy after billing (internet required; a failed backup never blocks a sale).
+3. Settings → **Connect Google Drive** — the system browser opens for Google sign-in and returns to MartPOS automatically. The connected account's email is shown in Settings.
+4. Turn on **automatic backup** in Settings → Cloud & communication and pick a frequency (every 6 hours, every day, or at application close). A failed backup never blocks a sale.
+
+Backups upload a consistent snapshot of the live database to `MartPOS Backups/YYYY/MM/YYYY-MM-DD/` on the connected Drive, plus a `latest.db` at the folder root. **Disconnect** revokes access and stops automatic backup; existing Drive backups and local data are kept.
 
 Restore downloads a chosen backup and replaces the local `pos.db`. You will need to log in again.
+
+## WhatsApp billing (Twilio)
+
+Bills can be sent to customers on WhatsApp through the **Twilio WhatsApp Business API** (official API — WhatsApp Web automation is not supported).
+
+1. Get a WhatsApp sender from Twilio (sandbox or an approved WhatsApp Business number).
+2. Settings → **Cloud & communication**: enter the shop's WhatsApp number and the Twilio **Account SID**, **Auth Token**, and **sender number**. Credentials are stored encrypted in the app data folder and are never returned by the API.
+3. Use **Test WhatsApp** to verify. At the POS, tick **Send bill on WhatsApp** before charging, or resend any saved invoice from the Sales list.
+
+A WhatsApp failure never affects the sale — the bill stays saved and can be resent. Media/PDF attachments need a public URL, so the bill is sent as formatted text.
 
 A public hosted website cannot use the shop owner’s Drive until that owner completes OAuth on that same machine.
 
 ## Environment variables
 
 - `FLASK_SECRET_KEY` — session secret (set this in production)
-- `MARTPOS_DATA_DIR` — override where `pos.db` and Drive tokens are stored
+- `MARTPOS_DATA_DIR` — override where `pos.db`, Drive tokens and encrypted secrets are stored
 - `PORT` — web server port (default 5000)
-- Optional WhatsApp via Twilio: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
+- Optional WhatsApp via Twilio: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` (fallback only — prefer Settings → Cloud & communication)
 
 ## Production web
 

@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { getResourceDir, getDataDir } = require('./lib/paths');
-const { initDatabase, flushSave } = require('./lib/database');
+const { initDatabase, flushSave, reloadDatabase } = require('./lib/database');
 const { seedItemsFromJson } = require('./lib/items');
 
 // Import business logic modules
@@ -28,8 +28,9 @@ const reportLib = require('./lib/reports');
 const { dashboard, reports } = reportLib;
 const { generateInvoicePDF } = require('./lib/pdfGenerator');
 const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
-const { formatBillText, sendWhatsAppMessage } = require('./lib/whatsapp');
-const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, restoreDatabase, tryAutoBackup, DriveError } = require('./lib/driveSync');
+const { formatBillText, sendWhatsAppMessage, sendTestMessage, normalizeWhatsAppNumber, whatsappStatus } = require('./lib/whatsapp');
+const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, restoreDatabase, tryAutoBackup, isBackupDue, DriveError } = require('./lib/driveSync');
+const { setSecret } = require('./lib/secrets');
 const { createEstimate, listEstimates, getEstimate, getEstimateByNo, updateEstimate, convertEstimateToInvoice, deleteEstimate } = require('./lib/estimates');
 const { createDeliveryChallan, listDeliveryChallans, getDeliveryChallan, getDeliveryChallanByNo, updateDeliveryChallanStatus, linkChallanToInvoice, deleteDeliveryChallan } = require('./lib/deliveryChallans');
 const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getCreditNote, getDebitNote, updateCreditNoteStatus, updateDebitNoteStatus, deleteCreditNote, deleteDebitNote } = require('./lib/creditDebitNotes');
@@ -102,11 +103,18 @@ function errMsg(e) {
 }
 
 // Settings safe to send to the client: never expose the passcode hash,
-// only whether one is configured.
+// only whether one is configured. Any *_token / *_secret / *_hash style
+// key is also withheld as defense-in-depth - API credentials (Twilio etc.)
+// live in lib/secrets, but a stray secret key must never leak via the API.
 function publicSettings(settings) {
-  const { bill_passcode_hash, ...rest } = { ...(settings || getSettings()) };
-  rest.bill_passcode_set = !!bill_passcode_hash;
-  return rest;
+  const all = { ...(settings || getSettings()) };
+  const out = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (/_token$|_secret$|_hash$|^twilio_/.test(key)) continue;
+    out[key] = value;
+  }
+  out.bill_passcode_set = !!all.bill_passcode_hash;
+  return out;
 }
 
 function currentUser(req) {
@@ -199,13 +207,18 @@ function cartPayload(req) {
   return totals;
 }
 
+// Runs a Drive backup only when automatic backup is enabled and the
+// configured interval has elapsed. Failures are logged and never thrown -
+// billing must never be interrupted by a backup problem.
 async function maybeAutoBackup() {
-  const autoBackup = getSetting('drive_auto_backup', '0');
-  if (autoBackup !== '1') {
-    return;
-  }
   try {
-    await tryAutoBackup();
+    if (!isBackupDue()) {
+      return;
+    }
+    const result = await tryAutoBackup();
+    if (!result.ok) {
+      console.error('Auto-backup failed:', result.error);
+    }
   } catch (error) {
     console.error('Auto-backup failed:', error);
   }
@@ -228,7 +241,8 @@ app.get('/api/me', (req, res) => {
     user: user,
     must_change_password: getSetting('must_change_password', '0') === '1' && user.role === 'admin',
     settings: publicSettings(),
-    drive: driveStatus()
+    drive: driveStatus(),
+    whatsapp: whatsappStatus()
   });
 });
 
@@ -811,12 +825,13 @@ app.post('/api/sale', loginRequired, async (req, res) => {
     // Auto-backup if enabled
     await maybeAutoBackup();
 
-    // WhatsApp integration
+    // WhatsApp integration - a delivery failure never affects the saved sale
     let whatsapp = { ok: true, provider: 'none' };
-    if (req.body.send_whatsapp && customerPhone) {
+    const whatsappPhone = customerPhone || partyPhone;
+    if (req.body.send_whatsapp && whatsappPhone) {
       try {
         const billText = formatBillText(invoice);
-        whatsapp = await sendWhatsAppMessage(customerPhone, billText);
+        whatsapp = await sendWhatsAppMessage(whatsappPhone, billText);
       } catch (error) {
         console.error('WhatsApp error:', error);
         whatsapp = { ok: false, error: error.message, provider: 'whatsapp' };
@@ -865,11 +880,38 @@ app.post('/send_bill', loginRequired, async (req, res) => {
       }
     }
 
-    if (result.ok) {
-      return res.json({ ok: true, message: 'Bill saved', provider: result.provider, invoice: invoice });
-    } else {
-      return res.status(500).json(jsonError(result.error || 'Failed to send message'));
+    // The bill is already saved - a WhatsApp failure is reported in the
+    // payload but never fails the request.
+    return res.json({
+      ok: true,
+      message: result.ok ? 'Bill saved' : 'Bill saved successfully, but WhatsApp delivery failed',
+      whatsapp: result,
+      provider: result.provider,
+      invoice: invoice
+    });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+// Send (or retry sending) a saved invoice over WhatsApp. Cashiers may use it.
+app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
+  try {
+    const invoice = getInvoice(parseInt(req.params.id));
+    if (!invoice) {
+      return res.status(404).json(jsonError('Invoice not found'));
     }
+    const phone = String((req.body || {}).phone || invoice.party_phone || '').trim();
+    if (!phone) {
+      return res.status(400).json(jsonError('Customer WhatsApp number is required'));
+    }
+    const billText = formatBillText(invoice);
+    const result = await sendWhatsAppMessage(phone, billText);
+    audit(
+      req, 'whatsapp', 'sales', invoice.invoice_no,
+      result.ok ? `Bill sent on WhatsApp to ${phone}` : `WhatsApp send failed: ${result.error || 'unknown'}`
+    );
+    res.json({ ok: true, whatsapp: result, invoice_no: invoice.invoice_no });
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
@@ -1082,7 +1124,8 @@ app.get('/api/settings', loginRequired, (req, res) => {
   const payload = {
     ok: true,
     settings: publicSettings(),
-    drive: driveStatus()
+    drive: driveStatus(),
+    whatsapp: whatsappStatus()
   };
   
   if (user.role === 'admin') {
@@ -1105,6 +1148,8 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       gst_type: true,
       default_gst: true,
       drive_auto_backup: true,
+      drive_backup_interval: true,
+      whatsapp_number: true,
       must_change_password: true,
       receipt_printer_width: true,
       receipt_font_size: true,
@@ -1124,6 +1169,41 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
     for (const [key, value] of Object.entries(req.body)) {
       if (allowed[key]) {
         updates[key] = value;
+      }
+    }
+
+    // Shop WhatsApp number must be a valid international-format number
+    if (updates.whatsapp_number !== undefined) {
+      const v = String(updates.whatsapp_number).trim();
+      updates.whatsapp_number = v === '' ? '' : normalizeWhatsAppNumber(v);
+    }
+
+    if (updates.drive_backup_interval !== undefined &&
+        !['6h', 'daily', 'on_exit'].includes(String(updates.drive_backup_interval))) {
+      return res.status(400).json(jsonError('Invalid backup frequency'));
+    }
+
+    // Twilio credentials go to the encrypted secrets store - never into the
+    // settings table and never echoed back. Blank fields keep the saved
+    // value; the "clear" flag removes all three.
+    const twilioClear = String(req.body.twilio_disconnect || '') === '1';
+    const newFrom = req.body.twilio_whatsapp_from;
+    if (!twilioClear && newFrom !== undefined && String(newFrom).trim() !== '') {
+      try {
+        req.body.twilio_whatsapp_from = normalizeWhatsAppNumber(newFrom);
+      } catch (e) {
+        return res.status(400).json(jsonError(`WhatsApp sender number: ${e.message}`));
+      }
+    }
+    let secretsChanged = false;
+    for (const key of ['twilio_account_sid', 'twilio_auth_token', 'twilio_whatsapp_from']) {
+      const v = req.body[key];
+      if (twilioClear) {
+        setSecret(key, '');
+        secretsChanged = true;
+      } else if (v !== undefined && String(v).trim() !== '') {
+        setSecret(key, String(v).trim());
+        secretsChanged = true;
       }
     }
 
@@ -1151,7 +1231,10 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
     if (passcodeAudit) {
       audit(req, 'update', 'settings', '', passcodeAudit);
     }
-    res.json({ ok: true, settings: publicSettings(settings) });
+    if (secretsChanged) {
+      audit(req, 'update', 'settings', '', twilioClear ? 'Twilio credentials cleared' : 'Twilio credentials updated');
+    }
+    res.json({ ok: true, settings: publicSettings(settings), whatsapp: whatsappStatus() });
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
@@ -1388,6 +1471,24 @@ app.get('/upi_qr', loginRequired, async (req, res) => {
   }
 });
 
+// WhatsApp routes
+app.get('/api/whatsapp/status', loginRequired, (req, res) => {
+  res.json({ ok: true, whatsapp: whatsappStatus() });
+});
+
+// Sends a test message to the shop's own configured number (or an explicit
+// test recipient) - never to a customer. The real provider error is logged
+// server-side; the UI gets a plain message.
+app.post('/api/whatsapp/test', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await sendTestMessage((req.body || {}).to);
+    audit(req, 'whatsapp_test', 'settings', '', result.ok ? `WhatsApp test sent (${result.provider})` : `WhatsApp test failed: ${result.error || 'unknown'}`);
+    res.json({ ok: true, whatsapp: whatsappStatus(), result });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
 // Google Drive sync routes
 app.get('/api/drive/status', requireRole('admin'), (req, res) => {
   res.json({ ok: true, drive: driveStatus() });
@@ -1406,15 +1507,15 @@ app.post('/api/drive/connect', requireRole('admin'), async (req, res) => {
   }
 });
 
-app.post('/api/drive/disconnect', requireRole('admin'), (req, res) => {
-  disconnect();
+app.post('/api/drive/disconnect', requireRole('admin'), async (req, res) => {
+  await disconnect();
   res.json({ ok: true, drive: driveStatus() });
 });
 
 app.post('/api/drive/backup', requireRole('admin'), async (req, res) => {
   try {
     const result = await backupDatabase();
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, ...result, drive: driveStatus() });
   } catch (error) {
     if (error instanceof DriveError) {
       res.status(400).json(jsonError(errMsg(error)));
@@ -1445,9 +1546,10 @@ app.post('/api/drive/restore', requireRole('admin'), async (req, res) => {
     }
     
     const result = await restoreDatabase(file_id);
-    
-    // Reinitialize database after restore
-    await initDatabase();
+
+    // Swap the restored file in as the live database (initDatabase alone
+    // would early-return with the stale in-memory db)
+    reloadDatabase();
     req.session.destroy();
     
     res.json({ ok: true, ...result, note: 'Database restored. Please log in again.' });
@@ -1839,6 +1941,10 @@ async function startServer() {
         }
       });
     });
+
+    // Periodic check for due automatic Drive backups. The check itself is
+    // cheap; failures are logged inside maybeAutoBackup and never surface.
+    setInterval(() => { maybeAutoBackup(); }, 15 * 60 * 1000).unref();
 
     const shutdown = () => {
       flushSave();

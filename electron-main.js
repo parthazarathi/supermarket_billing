@@ -251,13 +251,42 @@ if (!gotLock) {
     mainWindow.loadURL(`${appOrigin()}/`);
   });
 
-  // Flush the database file before exiting so no sale is lost
-  electronApp.on('before-quit', () => {
+  // Flush the database file before exiting so no sale is lost. When the
+  // owner chose "at application close" backups, run one best-effort Drive
+  // upload first (30s cap so shutdown can never hang).
+  let exitBackupAttempted = false;
+  electronApp.on('before-quit', (event) => {
     console.log('MartPOS shutting down');
     try {
       flushSave();
     } catch (e) {
       console.error('Database flush on quit failed:', e);
+    }
+
+    if (exitBackupAttempted) return;
+    exitBackupAttempted = true;
+    try {
+      const { getSetting } = require('./lib/settings');
+      const { tokenPresent, tryAutoBackup } = require('./lib/driveSync');
+      if (getSetting('drive_auto_backup', '0') === '1' &&
+          getSetting('drive_backup_interval', 'daily') === 'on_exit' &&
+          tokenPresent()) {
+        event.preventDefault();
+        const finish = () => electronApp.quit();
+        const timeout = setTimeout(finish, 30000);
+        tryAutoBackup()
+          .then((r) => {
+            if (r && r.ok) console.log('Exit backup uploaded to Google Drive');
+            else console.error('Exit backup failed:', r && r.error);
+          })
+          .catch((e) => console.error('Exit backup failed:', e))
+          .finally(() => {
+            clearTimeout(timeout);
+            finish();
+          });
+      }
+    } catch (e) {
+      console.error('Exit backup check failed:', e);
     }
   });
 

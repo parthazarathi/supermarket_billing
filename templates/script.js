@@ -19,6 +19,7 @@ const state = {
   dashboard: null,
   users: [],
   drive: {},
+  whatsapp: {},
   payment: "Cash",
   paid: "",
   phone: "",
@@ -1149,10 +1150,24 @@ async function chargeBill(openPdf = false) {
       },
     });
     applyCart(data);
+    const wa = data.whatsapp;
     state.customerName = "";
     state.customerPhone = "";
     state.sendWhatsapp = false;
-    setStatus(`Saved ${data.invoice.invoice_no}`, "ok");
+    if (wa && wa.provider && wa.provider !== "none") {
+      // WhatsApp was requested - the sale is already saved either way.
+      if (wa.ok && wa.provider === "twilio") {
+        setStatus(`Saved ${data.invoice.invoice_no} · sent on WhatsApp`, "ok");
+      } else if (wa.provider === "simulated") {
+        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp is not configured, bill was not sent`, "error");
+        whatsappRetryModal(data.invoice);
+      } else {
+        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp delivery failed`, "error");
+        whatsappRetryModal(data.invoice);
+      }
+    } else {
+      setStatus(`Saved ${data.invoice.invoice_no}`, "ok");
+    }
     if (openPdf) {
       if (window.ReceiptPrinter) {
         ReceiptPrinter.print(data.invoice);
@@ -1168,6 +1183,44 @@ async function chargeBill(openPdf = false) {
 
 async function printBill() {
   await chargeBill(true);
+}
+
+// Send or resend a saved invoice over WhatsApp. Used by the post-sale
+// failure path and the Sales list "WhatsApp" button. The invoice is already
+// saved, so this only ever reports delivery status.
+function whatsappRetryModal(invoice, defaultPhone = "") {
+  openModal(
+    `<form id="waSendForm">
+      <h3>Send bill on WhatsApp</h3>
+      <p class="help">Invoice ${esc(invoice.invoice_no)} · ₹ ${money(invoice.total)}${invoice.party_name ? ` · ${esc(invoice.party_name)}` : ""}</p>
+      <label>Customer WhatsApp number
+        <input name="phone" type="tel" placeholder="+91XXXXXXXXXX" value="${esc(defaultPhone || invoice.party_phone || "")}" required autofocus />
+      </label>
+      <div id="waSendMsg" class="help"></div>
+    </form>`,
+    "waSendForm"
+  );
+  const form = document.getElementById("waSendForm");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("waSendMsg");
+    const fd = Object.fromEntries(new FormData(form).entries());
+    msg.textContent = "Sending…";
+    try {
+      const r = await api(`/api/invoices/${invoice.id}/whatsapp`, { method: "POST", body: { phone: fd.phone } });
+      const w = r.whatsapp || {};
+      if (w.ok && w.provider === "twilio") {
+        closeModal();
+        setStatus("Bill sent on WhatsApp", "ok");
+      } else if (w.provider === "simulated") {
+        msg.textContent = "WhatsApp is not configured yet (Twilio credentials missing). The shop owner can set it up in Settings → Cloud & communication.";
+      } else {
+        msg.textContent = `Delivery failed: ${w.error || "unknown error"}`;
+      }
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
 }
 
 async function recallHeld() {
@@ -1464,6 +1517,7 @@ function renderSales(view) {
                 <td>₹ ${money(i.total)}</td><td>₹ ${money(i.paid)}</td><td>${esc(i.status)}</td>
                 <td>
                   <button class="btn ghost sm" data-print="${i.id}">Print</button>
+                  ${i.status !== "cancelled" ? `<button class="btn ghost sm" data-wa="${i.id}">WhatsApp</button>` : ""}
                   ${i.status !== "cancelled" && Number(i.total) > Number(i.paid) ? `<button class="btn sm" data-pay="${i.id}">Pay</button>` : ""}
                   ${can("manager") && i.status !== "cancelled" ? `<button class="btn ghost sm" data-ret="${i.id}">Return</button>` : ""}
                   ${can("manager") && state.settings.bill_passcode_set && i.status !== "cancelled" ? `<button class="btn ghost sm" data-edit="${i.id}">Edit</button>` : ""}
@@ -1483,6 +1537,16 @@ function renderSales(view) {
   });
   view.querySelectorAll("[data-ret]").forEach((btn) => {
     btn.addEventListener("click", () => openReturn(btn.dataset.ret));
+  });
+  view.querySelectorAll("[data-wa]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        const inv = (await api(`/api/invoices/${btn.dataset.wa}`)).invoice;
+        whatsappRetryModal(inv);
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
   });
   view.querySelectorAll("[data-print]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -2174,6 +2238,7 @@ function renderReports(view) {
 function renderSettings(view) {
   const s = state.settings || {};
   const d = state.drive || {};
+  const w = state.whatsapp || {};
   view.innerHTML = `
     <div class="pos">
       <form class="card form-grid" id="setForm">
@@ -2199,10 +2264,27 @@ function renderSettings(view) {
             <option value="inter" ${s.gst_type === "inter" ? "selected" : ""}>Inter-state (IGST)</option>
           </select>
         </label>
-        <label>Drive backup
-          <select name="drive_auto_backup">
-            <option value="0" ${s.drive_auto_backup !== "1" ? "selected" : ""}>Manual Drive backup</option>
-            <option value="1" ${s.drive_auto_backup === "1" ? "selected" : ""}>Auto backup after each sale</option>
+        <h3 class="full">Cloud &amp; communication</h3>
+        <label>WhatsApp business number
+          <input name="whatsapp_number" type="tel" placeholder="+91 XXXXXXXXXX" value="${esc(s.whatsapp_number || "")}" />
+        </label>
+        <label>Twilio Account SID
+          <input name="twilio_account_sid" placeholder="${(state.whatsapp.fields || {}).account_sid ? "Saved — enter to replace" : "ACxxxxxxxx"}" autocomplete="off" />
+        </label>
+        <label>Twilio Auth Token
+          <input name="twilio_auth_token" type="password" placeholder="${(state.whatsapp.fields || {}).auth_token ? "Saved — enter to replace" : "Auth token"}" autocomplete="new-password" />
+        </label>
+        <label>Twilio WhatsApp sender
+          <input name="twilio_whatsapp_from" type="tel" placeholder="${(state.whatsapp.fields || {}).from ? "Saved — enter to replace" : "+14155238886"}" autocomplete="off" />
+        </label>
+        ${state.whatsapp.configured ? `<label class="check"><input type="checkbox" name="twilio_disconnect" /> Remove saved Twilio credentials</label>` : ""}
+        <p class="help full">Twilio credentials are stored encrypted on this PC and are never shown again. Leave a field blank to keep its saved value.</p>
+        <label class="check"><input type="checkbox" name="drive_auto_backup" ${s.drive_auto_backup === "1" ? "checked" : ""} /> Enable automatic Google Drive backup</label>
+        <label>Backup frequency
+          <select name="drive_backup_interval">
+            <option value="6h" ${s.drive_backup_interval === "6h" ? "selected" : ""}>Every 6 hours</option>
+            <option value="daily" ${!s.drive_backup_interval || s.drive_backup_interval === "daily" ? "selected" : ""}>Every day</option>
+            <option value="on_exit" ${s.drive_backup_interval === "on_exit" ? "selected" : ""}>At application close</option>
           </select>
         </label>
 
@@ -2254,16 +2336,27 @@ function renderSettings(view) {
         </div>
       </div>
       <div class="card">
-        <h3>Google Drive backup</h3>
+        <h3>Cloud &amp; communication status</h3>
+        <h4>WhatsApp billing</h4>
+        <p><span class="dot ${w.configured ? "on" : "off"}"></span>${w.configured ? "Connected (Twilio)" : "Not connected"}</p>
+        <p class="muted">Business number: ${esc(w.number || "—")}</p>
+        <div class="toolbar">
+          <input id="waTestTo" type="tel" placeholder="Test recipient (default: shop number)" style="max-width:230px" />
+          <button class="btn ghost" id="waTest">Test WhatsApp</button>
+        </div>
+        <div id="waTestMsg" class="help"></div>
+        <h4>Google Drive backup</h4>
+        <p><span class="dot ${d.connected ? "on" : "off"}"></span>${d.connected ? `Connected${d.email ? ` · ${esc(d.email)}` : ""}` : "Not connected"}</p>
+        <p class="muted">Folder: ${esc(d.folder || "MartPOS Backups")} · Last backup: ${d.last_backup_at ? esc(new Date(d.last_backup_at).toLocaleString("en-IN")) : "never"}</p>
         <p class="help">1. Create a Google Cloud OAuth <b>Desktop</b> client.<br>
         2. Download <code>credentials.json</code> into <code>${esc(d.credentials_path || "")}</code><br>
-        3. Click Connect, then Backup now. Restore replaces the local database.</p>
-        <p>Credentials: ${d.credentials ? "found" : "missing"} · Connected: ${d.connected ? "yes" : "no"}</p>
+        3. Click Connect, sign in, then Backup now. Restore replaces the local database.</p>
+        <p class="muted">Credentials file: ${d.credentials ? "found" : "missing"}</p>
         <div class="toolbar">
-          <button class="btn" id="drvConnect">Connect</button>
+          <button class="btn" id="drvConnect">Connect Google Drive</button>
           <button class="btn green" id="drvBackup">Backup now</button>
           <button class="btn ghost" id="drvList">List backups</button>
-          <button class="btn ghost" id="drvOff">Disconnect</button>
+          ${d.connected ? `<button class="btn ghost" id="drvOff">Disconnect</button>` : ""}
         </div>
         <div id="drvFiles"></div>
         <h3>Users</h3>
@@ -2311,6 +2404,13 @@ function renderSettings(view) {
     for (const k of Object.keys(ReceiptPrinter.DEFAULTS).filter((x) => x.startsWith("show_"))) {
       fd[`receipt_${k}`] = e.target.querySelector(`[name="receipt_${k}"]`).checked ? "1" : "0";
     }
+    fd.drive_auto_backup = e.target.querySelector('[name="drive_auto_backup"]').checked ? "1" : "0";
+    const twilioClear = e.target.querySelector('[name="twilio_disconnect"]');
+    if (twilioClear && twilioClear.checked) {
+      fd.twilio_disconnect = "1";
+    } else {
+      delete fd.twilio_disconnect;
+    }
     if (!fd.bill_passcode || !String(fd.bill_passcode).trim()) {
       delete fd.bill_passcode;
     }
@@ -2323,10 +2423,9 @@ function renderSettings(view) {
     try {
       const data = await api("/api/settings", { method: "POST", body: fd });
       state.settings = data.settings;
-      const pcInput = e.target.querySelector('[name="bill_passcode"]');
-      if (pcInput) pcInput.value = "";
-      if (clearBox) clearBox.checked = false;
+      state.whatsapp = data.whatsapp || state.whatsapp;
       setStatus("Settings saved", "ok");
+      renderView();
     } catch (err) {
       setStatus(err.message, "error");
     }
@@ -2349,12 +2448,35 @@ function renderSettings(view) {
       setStatus(err.message, "error");
     }
   });
+  document.getElementById("waTest").addEventListener("click", async () => {
+    const msg = document.getElementById("waTestMsg");
+    msg.textContent = "Sending test message…";
+    try {
+      const to = document.getElementById("waTestTo").value.trim();
+      const r = await api("/api/whatsapp/test", { method: "POST", body: to ? { to } : {} });
+      if (r.whatsapp) state.whatsapp = r.whatsapp;
+      const res = r.result || {};
+      if (res.provider === "simulated") {
+        msg.textContent = "Twilio credentials are not configured — the message was simulated, not delivered.";
+      } else if (res.ok) {
+        msg.textContent = `Test message sent to ${to || state.whatsapp.number || "the shop number"}.`;
+        setStatus("WhatsApp test sent", "ok");
+      } else {
+        msg.textContent = `Test failed: ${res.error || "unknown error"}`;
+      }
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
   document.getElementById("drvBackup").addEventListener("click", async () => {
     try {
-      await api("/api/drive/backup", { method: "POST", body: {} });
-      setStatus("Backup uploaded to Drive", "ok");
+      setStatus("Uploading backup to Google Drive…");
+      const r = await api("/api/drive/backup", { method: "POST", body: {} });
+      if (r.drive) state.drive = r.drive;
+      setStatus("Backup completed successfully", "ok");
+      renderView();
     } catch (err) {
-      setStatus(err.message, "error");
+      setStatus(`Backup could not be uploaded. Your local POS data is safe. (${err.message})`, "error");
     }
   });
   document.getElementById("drvList").addEventListener("click", async () => {
@@ -2374,9 +2496,11 @@ function renderSettings(view) {
       })
     );
   });
-  document.getElementById("drvOff").addEventListener("click", async () => {
+  document.getElementById("drvOff")?.addEventListener("click", async () => {
+    if (!confirm("Disconnect Google Drive? Existing backups stay on Drive; automatic backup is turned off.")) return;
     const data = await api("/api/drive/disconnect", { method: "POST", body: {} });
     state.drive = data.drive;
+    setStatus("Google Drive disconnected", "ok");
     renderView();
   });
   document.getElementById("userForm").addEventListener("submit", async (e) => {
@@ -2568,6 +2692,7 @@ async function loadSettings() {
   const data = await api("/api/settings");
   state.settings = data.settings;
   state.drive = data.drive || {};
+  state.whatsapp = data.whatsapp || {};
   state.users = data.users || [];
   renderView();
 }
@@ -2581,6 +2706,7 @@ async function start() {
   const me = await api("/api/me");
   state.settings = me.settings || {};
   state.drive = me.drive || {};
+  state.whatsapp = me.whatsapp || {};
   if (me.user) {
     state.user = me.user;
     await bootApp();

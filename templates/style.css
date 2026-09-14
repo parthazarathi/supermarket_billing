@@ -691,6 +691,15 @@ button:focus, .tile:focus, .chip:focus, .pay-opt:focus, .product-item:focus, .pa
 .status.ok { 
   color: var(--success); 
 }
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.dot.on { background: var(--success); }
+.dot.off { background: var(--text-tertiary); }
 
 .modal, .scanner-modal {
   position: fixed; inset: 0;
