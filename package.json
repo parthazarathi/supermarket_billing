@@ -2,14 +2,15 @@
   "name": "mart-pos",
   "version": "1.0.0",
   "description": "Vyapar-style billing application - migrated from Python to Node.js",
-  "main": "server.js",
+  "main": "electron-main.js",
   "bin": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "desktop": "node desktop.js",
-    "build": "pkg . --targets node18-win-x64 --output dist/MartPOS.exe",
-    "build:installer": "npm run build && node build-installer.js",
+    "desktop": "electron .",
+    "build": "electron-builder --win nsis portable",
+    "build:server-exe": "pkg . --targets node18-win-x64 --output dist/MartPOS-Server.exe",
+    "build:server-installer": "npm run build:server-exe && node build-installer.js",
     "lint": "eslint ."
   },
   "keywords": [
@@ -29,15 +30,59 @@
     "helmet": "^8.3.0",
     "open": "^8.4.2",
     "pdfkit": "^0.13.0",
-    "playwright": "^1.63.0",
     "qrcode": "^1.5.3",
     "sql.js": "^1.10.3",
     "twilio": "^4.19.0"
   },
   "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^8.57.1",
     "innosetup-compiler": "^6.3.1",
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "playwright": "^1.63.0"
+  },
+  "build": {
+    "appId": "com.martpos.app",
+    "productName": "MartPOS",
+    "directories": {
+      "output": "dist-app"
+    },
+    "files": [
+      "electron-main.js",
+      "preload.js",
+      "server.js",
+      "lib/**/*",
+      "templates/**/*",
+      "data/products.json",
+      "build/icon.png",
+      "package.json"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeCliInspectArguments": false,
+      "enableNodeOptionsEnvironmentVariable": false
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MartPOS",
+      "artifactName": "MartPOS-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "MartPOS-Portable-${version}.${ext}"
+    }
   },
   "pkg": {
     "assets": [

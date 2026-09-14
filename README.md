@@ -19,33 +19,40 @@ Default login: **admin** / **admin** (change this in Settings).
 npm run lint    # Run ESLint
 ```
 
-## Desktop EXE
+## Desktop app (Electron)
 
-```powershell
-npm run build
-```
+MartPOS ships as a standalone Windows desktop app. Double-clicking `MartPOS.exe` opens a native window — no console, no browser, no separate Node.js install. The Express backend runs inside the app on a random local port and the UI is served straight into the window.
 
-Run `dist\MartPOS.exe`. Shop data is kept in `%LOCALAPPDATA%\MartPOS\` so reinstalling the EXE does not wipe invoices.
-
-You can also run the desktop window without building:
+Run the desktop app in development:
 
 ```powershell
 npm run desktop
 ```
 
-## Windows installer
+Build the production app:
 
 ```powershell
-npm run build:installer
+npm run build
 ```
 
-Produces `dist\MartPOS-Setup-<version>.exe` (Inno Setup via `innosetup-compiler` — no separate install needed). The installer:
+Produces in `dist-app\`:
 
-- Installs per-user under `%LOCALAPPDATA%\Programs\MartPOS` — **no admin rights required**
-- Adds a Start Menu entry (+ optional desktop shortcut) and a proper uninstaller
-- Never touches shop data in `%LOCALAPPDATA%\MartPOS\`, so reinstalls/uninstalls keep invoices
+- `MartPOS-Setup-<version>.exe` — NSIS installer (per-user install, Start Menu + desktop shortcuts, uninstaller)
+- `MartPOS-Portable-<version>.exe` — single portable exe, no install needed
+- `win-unpacked\MartPOS.exe` — the unpacked app for testing
 
-On a fresh PC: run the setup, launch MartPOS, log in with `admin` / `admin`. To carry over an existing shop's data, copy `data\pos.db` into `%LOCALAPPDATA%\MartPOS\pos.db` or use Google Drive backup/restore.
+The installer never touches shop data in `%LOCALAPPDATA%\MartPOS\`, so reinstalls, upgrades and uninstalls keep invoices.
+
+On a fresh PC: run the setup, launch MartPOS, log in with `admin` / `admin`. To carry over an existing shop's data, copy `data\pos.db` into `%LOCALAPPDATA%\MartPOS\pos.db` or use Google Drive backup/restore. A `pos.db` left in a `data\` folder next to the exe is adopted automatically on first launch.
+
+### Legacy server-mode EXE (browser)
+
+The old `pkg` build — a console exe that serves MartPOS to a web browser — is still available for multi-till/browser deployments:
+
+```powershell
+npm run build:server-exe        # dist\MartPOS-Server.exe
+npm run build:server-installer  # dist\MartPOS-Server-Setup-<version>.exe (Inno Setup)
+```
 
 ## What you get
 

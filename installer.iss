@@ -1,24 +1,28 @@
-; MartPOS installer - Inno Setup script
-; Build: npm run build:installer  (produces dist\MartPOS-Setup-<version>.exe)
+; MartPOS SERVER-MODE installer - Inno Setup script (LEGACY)
+; This packages the pkg-built console exe that serves MartPOS in a browser.
+; The primary product is the Electron desktop app - build it with
+;   npm run build            (electron-builder: NSIS setup + portable exe)
+; Build this legacy installer with:
+;   npm run build:server-installer
 
-#define AppName "MartPOS"
+#define AppName "MartPOS Server"
 #define AppVersion "1.0.0"
 #define AppPublisher "MartPOS"
-#define AppExe "MartPOS.exe"
+#define AppExe "MartPOS-Server.exe"
 
 [Setup]
-AppId={{A3F47C2E-9B1D-4E5A-B6C8-2D7E9F0A1B3D}
+AppId={{B4E58D3F-1C2A-4F6B-9D7E-3F8A0B2C4D5E}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-AppComments=Supermarket billing, inventory and POS
-DefaultDirName={autopf}\MartPOS
-DefaultGroupName=MartPOS
+AppComments=Supermarket billing, inventory and POS (server/browser mode)
+DefaultDirName={autopf}\MartPOS-Server
+DefaultGroupName=MartPOS Server
 ; Per-user install under %LOCALAPPDATA%\Programs - no admin rights required
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=dist
-OutputBaseFilename=MartPOS-Setup-{#AppVersion}
+OutputBaseFilename=MartPOS-Server-Setup-{#AppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

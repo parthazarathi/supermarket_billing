@@ -21,6 +21,7 @@
   "ignorePatterns": [
     "node_modules/",
     "dist/",
+    "dist-app/",
     "data/",
     "templates/",
     "qa/"

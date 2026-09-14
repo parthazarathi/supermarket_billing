@@ -39,7 +39,7 @@ const { listAccounts, getAccount, saveAccount, deleteAccount, createTransaction,
 const ROLE_LEVEL = { cashier: 1, manager: 2, admin: 3 };
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = parseInt(process.env.PORT || '5000', 10);
 
 // Middleware
 app.use(helmet({
@@ -88,6 +88,7 @@ app.use('/style.css', express.static(path.join(templatesDir, 'style.css')));
 app.use('/script.js', express.static(path.join(templatesDir, 'script.js')));
 app.use('/reports.js', express.static(path.join(templatesDir, 'reports.js')));
 app.use('/receipt.js', express.static(path.join(templatesDir, 'receipt.js')));
+app.use('/vendor', express.static(path.join(templatesDir, 'vendor')));
 
 // Helper functions
 function jsonError(message, status = 400) {
@@ -1817,22 +1818,26 @@ async function startServer() {
       }
     };
 
-    const server = app.listen(PORT, () => {
-      const port = server.address().port;
-      console.log(`Mart POS server running on http://localhost:${port}`);
-      console.log('Default login: admin / admin');
-      openBrowser(port);
-    });
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        const fallback = app.listen(0, () => {
-          const port = fallback.address().port;
-          console.log(`Port ${PORT} busy - Mart POS running on http://localhost:${port}`);
-          openBrowser(port);
-        });
-      } else {
-        throw err;
-      }
+    const port = await new Promise((resolve, reject) => {
+      const server = app.listen(PORT, () => {
+        const p = server.address().port;
+        console.log(`Mart POS server running on http://localhost:${p}`);
+        console.log('Default login: admin / admin');
+        openBrowser(p);
+        resolve(p);
+      });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          const fallback = app.listen(0, () => {
+            const p = fallback.address().port;
+            console.log(`Port ${PORT} busy - Mart POS running on http://localhost:${p}`);
+            openBrowser(p);
+            resolve(p);
+          });
+        } else {
+          reject(err);
+        }
+      });
     });
 
     const shutdown = () => {
@@ -1842,10 +1847,22 @@ async function startServer() {
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
     process.on('beforeExit', flushSave);
+    return port;
   } catch (error) {
     console.error('Failed to start server:', error);
-    process.exit(1);
+    // Under Electron the main process shows a native error dialog, so the
+    // failure must propagate. Standalone (node/pkg) just exits.
+    if (require.main === module || process.pkg) {
+      process.exit(1);
+    }
+    throw error;
   }
 }
 
-startServer();
+// Start automatically when run directly (node server.js) or as the pkg exe.
+// Electron requires this module and calls startServer() itself.
+if (require.main === module || process.pkg) {
+  startServer();
+}
+
+module.exports = { app, startServer };

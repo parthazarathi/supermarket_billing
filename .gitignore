@@ -19,7 +19,7 @@ data/tokens.json
 
 # Build output
 dist/
-build/
+dist-app/
 *.exe
 
 # IDE

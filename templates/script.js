@@ -2405,7 +2405,7 @@ function renderSettings(view) {
   document.getElementById("pwForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
-    await api(`/api/users/${state.user.id}/password`, { method: "POST", body: fd });
+    await api(`/api/users/${state.user.id}/password`, { method: "PUT", body: fd });
     setStatus("Password updated", "ok");
   });
 }
