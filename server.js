@@ -17,7 +17,7 @@ const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCre
 const { calculateCartTotals } = require('./lib/cart');
 const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice, updateInvoice, deleteInvoice } = require('./lib/invoices');
 const { verifyBillPasscode } = require('./lib/passcode');
-const { completePurchase, listPurchases, getPurchase } = require('./lib/purchases');
+const { completePurchase, listPurchases, getPurchase, updatePurchase, deletePurchase } = require('./lib/purchases');
 const { createPurchaseReturn, listPurchaseReturns } = require('./lib/purchaseReturns');
 const { createStockAdjustment, listStockAdjustments } = require('./lib/stockAdjustments');
 const { openSession, closeSession, currentSession } = require('./lib/cashSessions');
@@ -948,7 +948,16 @@ app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
 // Invoices - each row carries its latest WhatsApp delivery status so the
 // Sales list can show Sent / Failed without extra round-trips.
 app.get('/api/invoices', loginRequired, (req, res) => {
-  const invoices = listInvoices();
+  // Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD filters by bill date (local days).
+  let range = null;
+  if (req.query.from || req.query.to) {
+    try {
+      range = parseRange(req.query);
+    } catch (e) {
+      return res.status(400).json(jsonError(e.message));
+    }
+  }
+  const invoices = listInvoices(500, range);
   const wa = latestStatusMap();
   for (const inv of invoices) {
     if (wa[inv.id]) inv.whatsapp = wa[inv.id];
@@ -1037,7 +1046,16 @@ app.delete('/api/invoices/:id', requireRole('manager'), (req, res) => {
 
 // Purchases
 app.get('/api/purchases', requireRole('manager'), (req, res) => {
-  res.json({ ok: true, purchases: listPurchases() });
+  // Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD filters by purchase date.
+  let range = null;
+  if (req.query.from || req.query.to) {
+    try {
+      range = parseRange(req.query);
+    } catch (e) {
+      return res.status(400).json(jsonError(e.message));
+    }
+  }
+  res.json({ ok: true, purchases: listPurchases(500, range) });
 });
 
 app.post('/api/purchases', requireRole('manager'), (req, res) => {
@@ -1122,6 +1140,41 @@ app.get('/api/purchases/:id', requireRole('manager'), (req, res) => {
     return res.status(404).json(jsonError('Purchase not found'));
   }
   res.json({ ok: true, purchase: purchase });
+});
+
+// Edit / delete a purchase bill - gated by the bill passcode, same as sales.
+app.put('/api/purchases/:id', requireRole('manager'), (req, res) => {
+  try {
+    const existing = getPurchase(parseInt(req.params.id));
+    if (!existing) {
+      return res.status(404).json(jsonError('Purchase not found'));
+    }
+    if (!checkBillPasscode(req, res, existing.purchase_no)) {
+      return;
+    }
+    const updated = updatePurchase(existing.id, req.body);
+    audit(req, 'update', 'purchases', updated.purchase_no, `Purchase edited: ${updated.purchase_no} (${req.body.reason || 'no reason'})`, existing, updated);
+    res.json({ ok: true, purchase: updated });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+app.delete('/api/purchases/:id', requireRole('manager'), (req, res) => {
+  try {
+    const existing = getPurchase(parseInt(req.params.id));
+    if (!existing) {
+      return res.status(404).json(jsonError('Purchase not found'));
+    }
+    if (!checkBillPasscode(req, res, existing.purchase_no)) {
+      return;
+    }
+    const snapshot = deletePurchase(existing.id);
+    audit(req, 'delete', 'purchases', snapshot.purchase_no, `Purchase deleted: ${snapshot.purchase_no} (${req.body.reason || 'no reason'})`, snapshot, null);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
 });
 
 // Expenses

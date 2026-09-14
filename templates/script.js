@@ -30,6 +30,12 @@ const state = {
   held: [],
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   partyFilter: "customer",
+  salesFilter: "all",
+  salesFrom: "",
+  salesTo: "",
+  purchaseFilter: "all",
+  purchaseFrom: "",
+  purchaseTo: "",
 };
 
 const defaultPosId = (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -89,7 +95,7 @@ function setStatus(msg, type = "") {
   const el = document.querySelector(".status");
   if (el) {
     el.textContent = state.status;
-    el.className = `status ${type}`;
+    el.className = `status${el.closest(".topbar") ? " header-status" : ""} ${type}`;
   }
   const seq = ++statusSeq;
   if (statusTimer) {
@@ -128,17 +134,35 @@ async function api(url, options = {}) {
 
 function navItems() {
   const items = [
-    ["dashboard", "Dashboard"],
-    ["pos", "POS Billing"],
-    ["items", "Items"],
-    ["parties", "Parties"],
-    ["sales", "Sales"],
+    ["dashboard", "Dashboard", "dashboard"],
+    ["pos", "POS Billing", "pos"],
+    ["items", "Items", "items"],
+    ["parties", "Parties", "parties"],
+    ["sales", "Sales", "sales"],
   ];
   if (can("manager")) {
-    items.push(["purchases", "Purchases"], ["expenses", "Expenses"], ["reports", "Reports"]);
+    items.push(["purchases", "Purchases", "purchases"], ["expenses", "Expenses", "expenses"], ["reports", "Reports", "reports"]);
   }
-  if (can("admin")) items.push(["settings", "Settings"]);
+  if (can("admin")) items.push(["settings", "Settings", "settings"]);
   return items;
+}
+
+const NAV_ICONS = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  pos: '<path d="M5 2h14v20l-2.3-1.2L14.4 22l-2.4-1.2L9.6 22l-2.3-1.2L5 22V2z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+  items: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  parties: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  sales: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  purchases: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  expenses: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>',
+  reports: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
+};
+
+function navIcon(icon) {
+  const body = NAV_ICONS[icon] || NAV_ICONS.dashboard;
+  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 }
 
 function render() {
@@ -152,7 +176,7 @@ function render() {
           <input name="username" id="username" autocomplete="username" required aria-required="true" />
           <label for="password">Password</label>
           <input name="password" id="password" type="password" autocomplete="current-password" required aria-required="true" />
-          <div class="status ${state.statusType}" style="margin:12px 0" role="alert" aria-live="polite">${esc(state.status)}</div>
+          <div class="status ${state.statusType} my-12" role="alert" aria-live="polite">${esc(state.status)}</div>
           <button class="btn wide" type="submit">Sign in</button>
         </form>
       </div>`;
@@ -196,8 +220,8 @@ function render() {
         <nav role="menu">
         ${navItems()
           .map(
-            ([id, label]) =>
-              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}" role="menuitem" aria-current="${state.view === id ? 'page' : 'false'}">${label}</button>`
+            ([id, label, icon]) =>
+              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}" role="menuitem" aria-current="${state.view === id ? 'page' : 'false'}" title="${esc(label)}">${navIcon(icon)}<span class="nav-label">${esc(label)}</span></button>`
           )
           .join("")}
         </nav>
@@ -205,7 +229,7 @@ function render() {
         <div class="user-box">
           <strong>${esc(state.user.username)}</strong>
           <span>${esc(state.user.role)}</span>
-          <button class="btn ghost sm" id="logoutBtn" style="margin-top:8px;width:100%" aria-label="Logout">Logout</button>
+          <button class="btn ghost sm sidebar-logout" id="logoutBtn" aria-label="Logout" title="Logout">${navIcon("logout")}<span class="logout-label">Logout</span></button>
         </div>
       </aside>
       <section class="main" role="main">
@@ -230,7 +254,7 @@ function render() {
                 <h2>${navItems().find((n) => n[0] === state.view)?.[1] || ""}</h2>
               </div>`
           }
-          <div class="status ${state.statusType}" role="status" aria-live="polite">${esc(state.status)}</div>
+          <div class="status ${state.statusType} header-status" role="status" aria-live="polite">${esc(state.status)}</div>
         </header>
         <div class="content" id="view" role="region" aria-live="polite"></div>
       </section>
@@ -415,7 +439,7 @@ function renderDashboard(view) {
         <input type="date" id="dashFrom" value="${esc(ds.from)}" />
         <input type="date" id="dashTo" value="${esc(ds.to)}" />
         <button class="btn sm" id="dashApply">Apply</button>` : ""}
-      <span class="muted" style="margin-left:auto;font-size:12px">Showing ${fmtD(ds.from)} to ${fmtD(ds.to)}</span>
+      <span class="muted fs-12 toolbar-count">Showing ${fmtD(ds.from)} to ${fmtD(ds.to)}</span>
     </div>
 
     ${!d ? (state.dashError
@@ -477,7 +501,7 @@ function renderDashboard(view) {
             <tbody>${d.payments.rows.map((p) => `<tr><td>${esc(p.method)}</td><td class="num">₹ ${money(p.amount)}</td><td class="num">${money(p.percent)}%</td></tr>`).join("")}</tbody>
             <tfoot><tr><td><b>Total</b></td><td class="num"><b>₹ ${money(d.payments.collected)}</b></td><td></td></tr></tfoot>
           </table></div>
-          ${Number(d.payments.credit) > 0 ? `<p class="muted" style="margin-top:8px">Credit (unpaid) sales: ₹ ${money(d.payments.credit)}</p>` : ""}
+          ${Number(d.payments.credit) > 0 ? `<p class="muted mt-8">Credit (unpaid) sales: ₹ ${money(d.payments.credit)}</p>` : ""}
         ` : `<div class="dash-empty">No collections for this period.</div>`}
       </div>
 
@@ -592,6 +616,9 @@ function renderDashboard(view) {
 
 function renderPos(view) {
   const c = state.cart;
+  // Amount received: untouched field defaults to the bill total; once the
+  // cashier types, their value is used (0 stays 0 -> credit sale).
+  const received = state.paid === "" || state.paid == null ? c.total : (parseFloat(state.paid) || 0);
   const billProfit = c.items.reduce((sum, item) => sum + ((item.price - (item.purchase_price || 0)) * item.quantity - item.discount), 0);
   const profitPercent = c.subtotal ? (billProfit / (c.subtotal - c.discount) * 100) : 0;
   view.innerHTML = `
@@ -614,24 +641,24 @@ function renderPos(view) {
           <div class="items-table-section">
             <div class="section-header">
               <h3>Order Items</h3>
-              <div style="display:flex;align-items:center;gap:8px">
+              <div class="section-actions">
                 <span class="item-count">${c.items.length} items</span>
                 <button class="btn ghost sm" id="clearCartBtn" aria-label="Clear all items from the order" ${c.items.length ? "" : "disabled"}>Clear</button>
               </div>
             </div>
-            
+
             <div class="items-table-container">
               <table class="items-table" role="table" aria-label="Order items table">
                 <thead>
                   <tr>
                     <th>Item</th>
-                    <th>Purchase Price</th>
-                    <th>MRP</th>
-                    <th>Sale Price</th>
-                    <th>Qty</th>
-                    <th>Discount</th>
-                    <th>Total</th>
-                    <th></th>
+                    <th class="num pos-cost">Purchase Price</th>
+                    <th class="num pos-cost">MRP</th>
+                    <th class="num">Sale Price</th>
+                    <th class="num qty-col">Qty</th>
+                    <th class="num">Discount</th>
+                    <th class="num">Total</th>
+                    <th class="actions-col"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -641,19 +668,19 @@ function renderPos(view) {
                         (item) => `
                     <tr role="row">
                       <td><strong>${esc(item.name)}</strong></td>
-                      <td>₹ ${money(item.purchase_price || 0)}</td>
-                      <td>₹ ${money(item.mrp || item.price)}</td>
-                      <td>₹ ${money(item.price)}</td>
-                      <td>
+                      <td class="num pos-cost">₹ ${money(item.purchase_price || 0)}</td>
+                      <td class="num pos-cost">₹ ${money(item.mrp || item.price)}</td>
+                      <td class="num">₹ ${money(item.price)}</td>
+                      <td class="num qty-col">
                         <div class="qty-control-inline">
-                          <button class="qty-btn sm minus" data-qty-minus="${esc(item.code)}">−</button>
+                          <button class="qty-btn sm icon-btn minus" data-qty-minus="${esc(item.code)}" title="Decrease quantity">−</button>
                           <input type="number" min="1" step="1" value="${item.quantity}" data-qty="${esc(item.code)}" aria-label="Quantity for ${esc(item.name)}" class="qty-input sm" />
-                          <button class="qty-btn sm plus" data-qty-plus="${esc(item.code)}">+</button>
+                          <button class="qty-btn sm icon-btn plus" data-qty-plus="${esc(item.code)}" title="Increase quantity">+</button>
                         </div>
                       </td>
-                      <td><input type="number" min="0" step="1" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
-                      <td>₹ ${money(item.line_total)}</td>
-                      <td><button class="btn danger sm" data-remove="${esc(item.code)}" aria-label="Remove ${esc(item.name)} from order">✕</button></td>
+                      <td class="num"><input type="number" min="0" step="1" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
+                      <td class="num">₹ ${money(item.line_total)}</td>
+                      <td class="actions-col"><button class="btn danger sm icon-btn" data-remove="${esc(item.code)}" aria-label="Remove ${esc(item.name)} from order" title="Remove item">✕</button></td>
                     </tr>`
                       )
                       .join("") || `<tr><td colspan="8" class="empty-cart">Scan or search products to add them to the order</td></tr>`
@@ -729,11 +756,15 @@ function renderPos(view) {
               <div class="payment-details">
                 <div class="payment-row">
                   <label for="paidInput">Amount Received</label>
-                  <input id="paidInput" type="number" min="0" step="1" value="${state.paid || money(c.total)}" aria-label="Amount received from customer" />
+                  <input id="paidInput" type="number" min="0" step="1" value="${state.paid === "" || state.paid == null ? money(c.total) : esc(state.paid)}" aria-label="Amount received from customer" />
                 </div>
                 <div class="payment-row">
                   <label>Change to Return</label>
-                  <span class="change-amount">₹ ${money(Math.max(0, (parseFloat(state.paid) || c.total) - c.total))}</span>
+                  <span class="change-amount">₹ ${money(Math.max(0, received - c.total))}</span>
+                </div>
+                <div class="payment-row credit-due" style="${received < c.total - 0.009 ? "" : "display:none"}">
+                  <label>Credit (unpaid)</label>
+                  <span class="due-amount">₹ ${money(Math.max(0, c.total - received))}</span>
                 </div>
               </div>
               
@@ -746,8 +777,8 @@ function renderPos(view) {
               }
               
               <div class="payment-actions">
-                <button class="btn wide green" id="payBtn" aria-label="Pay bill ₹${money(c.total)}">Pay ₹ ${money(c.total)}</button>
-                <button class="btn wide" id="printBtn" aria-label="Print bill ₹${money(c.total)}">Print & Pay ₹ ${money(c.total)}</button>
+                <button class="btn wide green" id="payBtn" aria-label="Pay ₹${money(received)} received">Pay ₹ ${money(received)}</button>
+                <button class="btn wide" id="printBtn" aria-label="Print and pay ₹${money(received)} received">Print &amp; Pay ₹ ${money(received)}</button>
               </div>
             </div>
           </div>
@@ -844,9 +875,39 @@ function renderPos(view) {
   };
 
   document.getElementById("addBtn").addEventListener("click", addFromSearch);
-  
+
+  // Barcode fast-add: scanners type the full code in a burst. When the input
+  // is an exact code match - and not also the prefix of a longer code - the
+  // item is added automatically after a short settle delay. Any further
+  // keystroke cancels it, so normal typing/searching is unaffected.
+  let scanTimer = null;
   search.addEventListener("input", (e) => {
-    showSuggestions(e.target.value);
+    const v = e.target.value;
+    showSuggestions(v);
+    if (scanTimer) {
+      clearTimeout(scanTimer);
+      scanTimer = null;
+    }
+    const q = v.trim().toLowerCase();
+    if (!q) return;
+    const exact = state.items.find((i) => i.code.toLowerCase() === q);
+    if (!exact) return;
+    const prefixOfLonger = state.items.some(
+      (i) => i.code.length > q.length && i.code.toLowerCase().startsWith(q)
+    );
+    if (prefixOfLonger) return;
+    scanTimer = setTimeout(async () => {
+      scanTimer = null;
+      // Bail if the box changed while settling or focus moved elsewhere.
+      if (document.activeElement !== search || search.value.trim().toLowerCase() !== q) return;
+      await addCode(exact.code);
+      search.value = "";
+      suggestionsEl.innerHTML = "";
+      suggestionsEl.classList.remove("open");
+      matches = [];
+      selectedIndex = -1;
+      search.focus();
+    }, 140);
   });
 
   search.addEventListener("keydown", (e) => {
@@ -1010,13 +1071,22 @@ function renderPos(view) {
   });
   document.getElementById("paidInput").addEventListener("input", (e) => {
     state.paid = e.target.value;
-    // Update change amount display
+    const paid = parseFloat(state.paid) || 0;
     const changeEl = document.querySelector('.change-amount');
     if (changeEl) {
-      const paid = parseFloat(state.paid) || c.total;
-      const change = Math.max(0, paid - c.total);
-      changeEl.textContent = `₹ ${money(change)}`;
+      changeEl.textContent = `₹ ${money(Math.max(0, paid - c.total))}`;
     }
+    const dueRow = document.querySelector('.credit-due');
+    const dueEl = document.querySelector('.due-amount');
+    if (dueRow && dueEl) {
+      dueEl.textContent = `₹ ${money(Math.max(0, c.total - paid))}`;
+      dueRow.style.display = paid < c.total - 0.009 ? "" : "none";
+    }
+    // Buttons reflect the received amount, not the bill total
+    const payBtn = document.getElementById('payBtn');
+    if (payBtn) payBtn.textContent = `Pay ₹ ${money(paid)}`;
+    const printBtn = document.getElementById('printBtn');
+    if (printBtn) printBtn.textContent = `Print & Pay ₹ ${money(paid)}`;
   });
   document.getElementById("payBtn").addEventListener("click", chargeBill);
   document.getElementById("printBtn").addEventListener("click", printBill);
@@ -1044,6 +1114,7 @@ function applyCart(data) {
 
 async function clearCart() {
   try {
+    state.paid = "";
     applyCart(await api("/api/cart/clear", { method: "POST", body: {} }));
     setStatus("Cart cleared", "ok");
   } catch (err) {
@@ -1149,7 +1220,8 @@ async function addCode(code) {
 
 async function chargeBill(openPdf = false) {
   try {
-    const paid = document.getElementById("paidInput").value;
+    const paidRaw = document.getElementById("paidInput").value.trim();
+    const paid = paidRaw === "" ? "0" : paidRaw;
     const data = await api("/api/sale", {
       method: "POST",
       body: {
@@ -1165,6 +1237,7 @@ async function chargeBill(openPdf = false) {
     state.customerName = "";
     state.customerPhone = "";
     state.sendWhatsapp = false;
+    state.paid = "";
     if (wa && wa.provider && wa.provider !== "none") {
       // WhatsApp was requested - the sale is already saved either way.
       // With auto-send on, failures stay non-blocking (status line only); the
@@ -1182,7 +1255,8 @@ async function chargeBill(openPdf = false) {
         if (!autoSendOn) whatsappRetryModal(data.invoice);
       }
     } else {
-      setStatus(`Saved ${data.invoice.invoice_no}`, "ok");
+      const due = Math.max(0, Number(data.invoice.total) - Number(data.invoice.paid));
+      setStatus(`Saved ${data.invoice.invoice_no}${due > 0 ? ` — ₹ ${money(due)} marked as credit (unpaid)` : ""}`, "ok");
     }
     if (openPdf) {
       if (window.ReceiptPrinter) {
@@ -1223,7 +1297,7 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
     .map((a) => `${a.status === "sent" ? "✓" : "✗"} ${fmtDateTime(a.created_at)}${a.error ? ` — ${a.error}` : ""}`)
     .join("\n");
   if (attempts) {
-    form.insertAdjacentHTML("beforeend", `<p class="help" style="white-space:pre-line">Recent attempts:\n${esc(attempts)}</p>`);
+    form.insertAdjacentHTML("beforeend", `<p class="help pre-line">Recent attempts:\n${esc(attempts)}</p>`);
   }
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1272,45 +1346,110 @@ function renderItems(view) {
         : ""
     }
     <div class="card table-wrap">
-      <table>
-        <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Purchase</th><th>MRP</th><th>Sale</th><th>GST</th><th>Stock</th>${can("manager") ? "<th></th>" : ""}</tr></thead>
+      <table class="data-table items-list">
+        <thead><tr><th>Code</th><th>Name</th><th>Category</th><th class="num">Purchase</th><th class="num">MRP</th><th class="num">Sale</th><th class="num">GST</th><th class="num">Stock</th><th class="actions-col"></th></tr></thead>
         <tbody>
           ${state.items
             .map(
               (i) => `<tr>
                 <td>${esc(i.code)}</td><td>${esc(i.name)}</td><td>${esc(i.category)}</td>
-                <td>₹ ${money(i.purchase_price)}</td>
-                <td>₹ ${money(i.mrp || i.sale_price)}</td>
-                <td>₹ ${money(i.sale_price)}</td>
-                <td>${i.gst_percent}%</td>
-                <td class="${Number(i.stock) <= Number(i.low_stock) ? "low" : ""}">${money(i.stock)}</td>
-                ${
-                  can("manager")
-                    ? `<td><button class="btn ghost sm" data-edit="${i.id}">Edit</button>
-                       <button class="btn ghost sm" data-adj="${i.id}">Adjust</button>
-                       <button class="btn danger sm" data-del="${i.id}">Delete</button></td>`
-                    : ""
-                }
+                <td class="num">₹ ${money(i.purchase_price)}</td>
+                <td class="num">₹ ${money(i.mrp || i.sale_price)}</td>
+                <td class="num">₹ ${money(i.sale_price)}</td>
+                <td class="num">${i.gst_percent}%</td>
+                <td class="num ${Number(i.stock) <= Number(i.low_stock) ? "low" : ""}">${money(i.stock)}</td>
+                <td class="actions-col">
+                  <div class="row-menu-wrap">
+                    <button class="btn ghost sm icon-btn" data-menu="${i.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
+                    <div class="row-menu" id="rmenu-${i.id}" role="menu">
+                      <button data-act="view" data-id="${i.id}" role="menuitem">View</button>
+                      <button data-act="print" data-id="${i.id}" role="menuitem">Print label</button>
+                      ${can("manager") ? `
+                      <button data-act="edit" data-id="${i.id}" role="menuitem">Edit</button>
+                      <button data-act="adj" data-id="${i.id}" role="menuitem">Adjust stock</button>
+                      <button class="danger" data-act="del" data-id="${i.id}" role="menuitem">Delete</button>` : ""}
+                    </div>
+                  </div>
+                </td>
               </tr>`
             )
-            .join("")}
+            .join("") || `<tr><td colspan="9" class="empty-state-cell">No items yet — add your first product to start billing.</td></tr>`}
         </tbody>
       </table>
     </div>`;
   document.getElementById("newItem")?.addEventListener("click", () => itemForm());
-  view.querySelectorAll("[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", () => itemForm(state.items.find((i) => String(i.id) === btn.dataset.edit)));
-  });
-  view.querySelectorAll("[data-adj]").forEach((btn) => {
-    btn.addEventListener("click", () => stockAdjustForm(state.items.find((i) => String(i.id) === btn.dataset.adj)));
-  });
-  view.querySelectorAll("[data-del]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (!confirm("Delete this item?")) return;
-      await api(`/api/items/${btn.dataset.del}`, { method: "DELETE" });
-      await loadItems();
+  view.querySelectorAll("[data-menu]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById(`rmenu-${btn.dataset.menu}`);
+      const wasOpen = menu.classList.contains("open");
+      closeRowMenus();
+      if (!wasOpen) {
+        menu.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
+      }
     });
   });
+  view.querySelectorAll(".row-menu [data-act]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const item = state.items.find((i) => String(i.id) === btn.dataset.id);
+      closeRowMenus();
+      if (!item) return;
+      if (btn.dataset.act === "view") itemViewModal(item);
+      else if (btn.dataset.act === "print") printItemLabel(item);
+      else if (btn.dataset.act === "edit") itemForm(item);
+      else if (btn.dataset.act === "adj") stockAdjustForm(item);
+      else if (btn.dataset.act === "del") {
+        if (!confirm(`Delete ${item.name}?`)) return;
+        await api(`/api/items/${item.id}`, { method: "DELETE" });
+        await loadItems();
+      }
+    });
+  });
+}
+
+function itemViewModal(item) {
+  openModal(`<h3>${esc(item.name)}</h3>
+    <div class="table-wrap"><table><tbody>
+      <tr><td><b>Code</b></td><td>${esc(item.code)}</td></tr>
+      <tr><td><b>Category</b></td><td>${esc(item.category)}</td></tr>
+      ${item.hsn ? `<tr><td><b>HSN</b></td><td>${esc(item.hsn)}</td></tr>` : ""}
+      <tr><td><b>Purchase price</b></td><td>₹ ${money(item.purchase_price)}</td></tr>
+      <tr><td><b>MRP</b></td><td>₹ ${money(item.mrp || item.sale_price)}</td></tr>
+      <tr><td><b>Sale price</b></td><td>₹ ${money(item.sale_price)}</td></tr>
+      <tr><td><b>GST</b></td><td>${item.gst_percent}%</td></tr>
+      <tr><td><b>Stock</b></td><td>${money(item.stock)} ${esc(item.unit || "pcs")}</td></tr>
+      <tr><td><b>Low-stock alert at</b></td><td>${money(item.low_stock)}</td></tr>
+    </tbody></table></div>`);
+}
+
+function printItemLabel(item) {
+  const shopName = state.settings.shop_name || "Mart POS";
+  const w = window.open("", "_blank", "width=420,height=320");
+  if (!w) {
+    setStatus("Popup blocked - allow popups to print labels", "error");
+    return;
+  }
+  w.document.write(`<!doctype html><html><head><title>Label - ${item.code}</title>
+  <style>
+    body{font-family:Arial,sans-serif;text-align:center;padding:14px;margin:0;color:#111}
+    .shop{font-size:12px;color:#555;letter-spacing:1px}
+    .name{font-size:16px;font-weight:700;margin:8px 0 4px}
+    .price{font-size:22px;font-weight:800}
+    .mrp{font-size:12px;color:#555;margin-top:2px}
+    .code{font-family:monospace;font-size:15px;letter-spacing:3px;border:1px dashed #888;padding:5px 12px;display:inline-block;margin-top:10px}
+    .gst{font-size:11px;color:#666;margin-top:6px}
+    @media print { @page { margin:4mm } }
+  </style></head><body>
+    <div class="shop">${esc(shopName)}</div>
+    <div class="name">${esc(item.name)}</div>
+    <div class="price">₹ ${money(item.sale_price)}</div>
+    ${item.mrp && Number(item.mrp) !== Number(item.sale_price) ? `<div class="mrp">MRP ₹ ${money(item.mrp)}</div>` : ""}
+    <div class="code">${esc(item.code)}</div>
+    <div class="gst">GST ${item.gst_percent}%</div>
+    <script>window.onload=function(){window.print();}<\/script>
+  </body></html>`);
+  w.document.close();
 }
 
 function stockAdjustForm(item) {
@@ -1446,24 +1585,24 @@ function renderParties(view) {
     </div>
     ${can("manager") ? `<div class="toolbar"><button class="btn" id="newParty">Add party</button></div>` : ""}
     <div class="card table-wrap">
-      <table>
-        <thead><tr><th>Name</th><th>Phone</th><th>Outstanding</th>${can("manager") ? "<th></th>" : ""}</tr></thead>
+      <table class="data-table parties-list">
+        <thead><tr><th>Name</th><th>Phone</th><th class="num">Outstanding</th>${can("manager") ? `<th class="actions-col"></th>` : ""}</tr></thead>
         <tbody>
           ${filtered
             .map(
               (p) => `<tr>
                 <td>${esc(p.name)}</td><td>${esc(p.phone)}</td>
-                <td class="outstanding ${p.outstanding > 0 ? 'positive' : p.outstanding < 0 ? 'negative' : ''}">₹ ${money(p.outstanding)}</td>
+                <td class="num outstanding ${p.outstanding > 0 ? 'positive' : p.outstanding < 0 ? 'negative' : ''}">₹ ${money(p.outstanding)}</td>
                 ${
                   can("manager")
-                    ? `<td><button class="btn ghost sm" data-edit="${p.id}">Edit</button>
+                    ? `<td class="actions-col"><button class="btn ghost sm" data-edit="${p.id}">Edit</button>
                        <button class="btn ghost sm" data-pay="${p.id}">Receive</button>
                        <button class="btn danger sm" data-del="${p.id}">Delete</button></td>`
                     : ""
                 }
               </tr>`
             )
-            .join("") || `<tr><td colspan="${can("manager") ? 4 : 3}">No ${filter}s found</td></tr>`
+            .join("") || `<tr><td colspan="${can("manager") ? 4 : 3}" class="empty-state-cell">No ${filter}s found</td></tr>`
           }
         </tbody>
       </table>
@@ -1534,85 +1673,175 @@ function partyForm(party = {}) {
   });
 }
 
+// Local YYYY-MM-DD for a Date object.
+function localDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// {from,to} local-day bounds for a filter chip. "custom" uses stored dates.
+function dateRangeFor(filter, customFrom, customTo) {
+  const now = new Date();
+  const today = localDate(now);
+  if (filter === "today") return { from: today, to: today };
+  if (filter === "week") {
+    const start = new Date(now);
+    start.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // Monday
+    return { from: localDate(start), to: today };
+  }
+  if (filter === "month") {
+    return { from: `${today.slice(0, 7)}-01`, to: today };
+  }
+  return { from: customFrom || today, to: customTo || today };
+}
+
+// Shared "All · Today · This Week · This Month · Custom" filter bar.
+function filterToolbarHTML(filter, from, to, countLabel) {
+  const filters = [["all", "All"], ["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["custom", "Custom"]];
+  return `<div class="toolbar filter-toolbar">
+    ${filters.map(([f, l]) => `<button class="btn ${filter === f ? "" : "ghost"} sm" data-sf="${f}">${l}</button>`).join("")}
+    ${filter === "custom" ? `
+      <input type="date" id="sfFrom" value="${esc(from)}" aria-label="From date" />
+      <input type="date" id="sfTo" value="${esc(to)}" aria-label="To date" />
+      <button class="btn sm" id="sfApply">Apply</button>` : ""}
+    <span class="muted toolbar-count">${countLabel}</span>
+  </div>`;
+}
+
+// Wires the shared filter bar. setFilter(f, from, to) stores the choice and
+// returns the filter id; reload() re-fetches + re-renders the list.
+function wireDateFilter(view, setFilter, reload) {
+  view.querySelectorAll("[data-sf]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (setFilter(btn.dataset.sf) === "custom") {
+        renderView();
+        return;
+      }
+      reload();
+    });
+  });
+  document.getElementById("sfApply")?.addEventListener("click", () => {
+    const from = document.getElementById("sfFrom").value;
+    const to = document.getElementById("sfTo").value;
+    if (!from || !to) {
+      setStatus("Pick both From and To dates", "error");
+      return;
+    }
+    setFilter("custom", from, to);
+    reload();
+  });
+}
+
 function renderSales(view) {
   view.innerHTML = `
+    ${filterToolbarHTML(state.salesFilter, state.salesFrom, state.salesTo, `${state.invoices.length} bill${state.invoices.length === 1 ? "" : "s"}`)}
     <div class="card table-wrap">
-      <table>
-        <thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Status</th><th>WhatsApp</th><th></th></tr></thead>
+      <table class="data-table sales-list">
+        <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th>Status</th><th class="actions-col"></th></tr></thead>
         <tbody>
           ${state.invoices
             .map(
               (i) => `<tr>
-                <td>${esc(i.invoice_no)}</td><td>${esc(i.party_name || "Walk-in")}</td>
-                <td>₹ ${money(i.total)}</td><td>₹ ${money(i.paid)}</td><td>${esc(i.status)}</td>
-                <td>${i.whatsapp
+                <td>${esc(i.invoice_no)}</td><td>${esc(fmtDateTime(i.created_at))}</td><td>${esc(i.party_name || "Walk-in")}</td>
+                <td class="num">₹ ${money(i.total)}</td><td class="num">₹ ${money(i.paid)}</td>
+                <td><span class="badge badge-${esc(i.status)}">${esc(i.status)}</span>${i.whatsapp
                   ? (i.whatsapp.status === "sent"
-                    ? `<span class="badge badge-paid" title="${esc(fmtDateTime(i.whatsapp.at))}">✓ Sent</span>`
-                    : `<span class="badge badge-unpaid" title="${esc(i.whatsapp.error || "failed")}">✗ Failed</span>`)
-                  : `<span class="muted">—</span>`}</td>
-                <td>
-                  <button class="btn ghost sm" data-print="${i.id}">Print</button>
-                  ${i.status !== "cancelled" ? `<button class="btn ghost sm" data-wa="${i.id}">WhatsApp</button>` : ""}
-                  ${i.status !== "cancelled" && Number(i.total) > Number(i.paid) ? `<button class="btn sm" data-pay="${i.id}">Pay</button>` : ""}
-                  ${can("manager") && i.status !== "cancelled" ? `<button class="btn ghost sm" data-ret="${i.id}">Return</button>` : ""}
-                  ${can("manager") && state.settings.bill_passcode_set && i.status !== "cancelled" ? `<button class="btn ghost sm" data-edit="${i.id}">Edit</button>` : ""}
-                  ${can("manager") && state.settings.bill_passcode_set ? `<button class="btn danger sm" data-del="${i.id}">Delete</button>` : ""}
+                    ? ` <span class="badge badge-paid" title="WhatsApp sent ${esc(fmtDateTime(i.whatsapp.at))}">WA ✓</span>`
+                    : ` <span class="badge badge-unpaid" title="WhatsApp failed: ${esc(i.whatsapp.error || "")}">WA ✗</span>`)
+                  : ""}</td>
+                <td class="actions-col">
+                  <div class="row-menu-wrap">
+                    <button class="btn ghost sm icon-btn" data-menu="${i.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
+                    <div class="row-menu" id="rmenu-sale-${i.id}" role="menu">
+                      <button data-act="view" data-id="${i.id}" role="menuitem">View</button>
+                      <button data-act="print" data-id="${i.id}" role="menuitem">Print</button>
+                      ${i.status !== "cancelled" ? `<button data-act="wa" data-id="${i.id}" role="menuitem">Send on WhatsApp</button>` : ""}
+                      ${i.status !== "cancelled" && Number(i.total) > Number(i.paid) ? `<button data-act="pay" data-id="${i.id}" role="menuitem">Pay due</button>` : ""}
+                      ${can("manager") && i.status !== "cancelled" ? `<button data-act="ret" data-id="${i.id}" role="menuitem">Return</button>` : ""}
+                      ${can("manager") && state.settings.bill_passcode_set && i.status !== "cancelled" ? `<button data-act="edit" data-id="${i.id}" role="menuitem">Edit</button>` : ""}
+                      ${can("manager") && state.settings.bill_passcode_set ? `<button class="danger" data-act="del" data-id="${i.id}" role="menuitem">Delete</button>` : ""}
+                    </div>
+                  </div>
                 </td>
               </tr>`
             )
-            .join("")}
+            .join("") || `<tr><td colspan="7" class="empty-state-cell">No bills found for this period.</td></tr>`}
         </tbody>
       </table>
     </div>`;
-  view.querySelectorAll("[data-pay]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const inv = state.invoices.find((x) => String(x.id) === btn.dataset.pay);
-      if (inv) openReceivePayment(inv);
+  wireDateFilter(view, (f, from, to) => {
+    state.salesFilter = f;
+    if (from) { state.salesFrom = from; state.salesTo = to; }
+    return f;
+  }, loadSales);
+  view.querySelectorAll("[data-menu]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById(`rmenu-sale-${btn.dataset.menu}`);
+      const wasOpen = menu.classList.contains("open");
+      closeRowMenus();
+      if (!wasOpen) {
+        menu.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
+      }
     });
   });
-  view.querySelectorAll("[data-ret]").forEach((btn) => {
-    btn.addEventListener("click", () => openReturn(btn.dataset.ret));
-  });
-  view.querySelectorAll("[data-wa]").forEach((btn) => {
+  view.querySelectorAll(".row-menu [data-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const inv = state.invoices.find((x) => String(x.id) === String(id));
+      closeRowMenus();
       try {
-        const inv = (await api(`/api/invoices/${btn.dataset.wa}`)).invoice;
-        whatsappRetryModal(inv);
+        if (btn.dataset.act === "view") {
+          await invoiceViewModal(id);
+        } else if (btn.dataset.act === "print") {
+          const full = (await api(`/api/invoices/${id}`)).invoice;
+          if (window.ReceiptPrinter) ReceiptPrinter.print(full);
+          else window.open(`/invoice_pdf?id=${id}`, "_blank");
+        } else if (btn.dataset.act === "wa") {
+          const full = (await api(`/api/invoices/${id}`)).invoice;
+          whatsappRetryModal(full);
+        } else if (btn.dataset.act === "pay") {
+          if (inv) openReceivePayment(inv);
+        } else if (btn.dataset.act === "ret") {
+          openReturn(id);
+        } else if (btn.dataset.act === "edit") {
+          openEditBill(id);
+        } else if (btn.dataset.act === "del") {
+          const passcode = await askPasscode(`Delete bill ${inv ? inv.invoice_no : ""}`);
+          if (passcode === null) return;
+          const reason = prompt("Reason for deleting");
+          if (reason === null) return;
+          await api(`/api/invoices/${id}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
+          setStatus("Bill deleted", "ok");
+          await loadSales();
+        }
       } catch (err) {
         setStatus(err.message, "error");
       }
     });
   });
-  view.querySelectorAll("[data-print]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      try {
-        const inv = (await api(`/api/invoices/${btn.dataset.print}`)).invoice;
-        if (window.ReceiptPrinter) ReceiptPrinter.print(inv);
-        else window.open(`/invoice_pdf?id=${inv.id}`, "_blank");
-      } catch (err) {
-        setStatus(err.message, "error");
-      }
-    });
-  });
-  view.querySelectorAll("[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", () => openEditBill(btn.dataset.edit));
-  });
-  view.querySelectorAll("[data-del]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const inv = (state.invoices || []).find((x) => String(x.id) === String(btn.dataset.del));
-      const passcode = await askPasscode(`Delete bill ${inv ? inv.invoice_no : ""}`);
-      if (passcode === null) return;
-      const reason = prompt("Reason for deleting");
-      if (reason === null) return;
-      try {
-        await api(`/api/invoices/${btn.dataset.del}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
-        setStatus("Bill deleted", "ok");
-        await loadSales();
-      } catch (err) {
-        setStatus(err.message, "error");
-      }
-    });
-  });
+}
+
+// Read-only invoice detail used by the Sales list "View" action.
+async function invoiceViewModal(id) {
+  const inv = (await api(`/api/invoices/${id}`)).invoice;
+  const due = Math.max(0, Number(inv.total) - Number(inv.paid));
+  openModal(`<h3>${esc(inv.invoice_no)}</h3>
+    <p class="muted">${esc(inv.party_name || "Walk-in")}${inv.party_phone ? ` · ${esc(inv.party_phone)}` : ""} · ${esc(fmtDateTime(inv.created_at))} · ${esc(inv.status)}</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>GST%</th><th>Amount</th></tr></thead>
+      <tbody>${(inv.items || []).map((it) => `<tr>
+        <td>${esc(it.name)}</td><td>${money(it.quantity)}</td><td>₹ ${money(it.price)}</td>
+        <td>${it.gst_percent}%</td><td>₹ ${money(it.line_total)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <div class="table-wrap"><table><tbody>
+      <tr><td>Subtotal</td><td>₹ ${money(inv.subtotal)}</td></tr>
+      ${Number(inv.discount) > 0 ? `<tr><td>Discount</td><td>₹ ${money(inv.discount)}</td></tr>` : ""}
+      <tr><td>GST</td><td>₹ ${money(inv.tax)}</td></tr>
+      <tr><td><b>Total</b></td><td><b>₹ ${money(inv.total)}</b></td></tr>
+      <tr><td>Paid</td><td>₹ ${money(inv.paid)}${inv.payment_method ? ` (${esc(inv.payment_method)})` : ""}</td></tr>
+      ${due > 0 ? `<tr><td><b>Due</b></td><td><b class="due-amount">₹ ${money(due)}</b></td></tr>` : ""}
+    </tbody></table></div>`);
 }
 
 function openReceivePayment(inv) {
@@ -1703,7 +1932,7 @@ async function openEditBill(id) {
 
   openModal(
     `<form id="editBillForm">
-      <h3>Edit ${esc(inv.invoice_no)} <span class="muted" style="font-size:13px">${esc(fmtD(inv.created_at))}</span></h3>
+      <h3>Edit ${esc(inv.invoice_no)} <span class="muted fs-13">${esc(fmtD(inv.created_at))}</span></h3>
       <div class="form-grid">
         <label>Customer
           <select name="party_id">
@@ -1718,15 +1947,15 @@ async function openEditBill(id) {
           <input name="party_phone" value="${esc(inv.party_phone || "")}" />
         </label>
       </div>
-      <div class="table-wrap" style="margin:10px 0">
+      <div class="table-wrap my-10">
         <table>
-          <thead><tr><th>Item</th><th style="width:90px">Qty</th><th style="width:100px">Price</th><th style="width:90px">Disc</th><th>Line total</th><th></th></tr></thead>
+          <thead><tr><th>Item</th><th class="w-90">Qty</th><th class="w-100">Price</th><th class="w-90">Disc</th><th class="num">Line total</th><th class="actions-col"></th></tr></thead>
           <tbody id="ebLines"></tbody>
         </table>
       </div>
       <input id="ebSearch" type="text" placeholder="Search item by code or name to add…" autocomplete="off" />
       <div id="ebSugs" class="table-wrap"></div>
-      <div class="form-grid" style="margin-top:10px">
+      <div class="form-grid mt-12">
         <label>Bill discount
           <input name="bill_discount" id="ebDisc" type="number" min="0" step="any" value="${money(inv.discount)}" />
         </label>
@@ -1742,7 +1971,7 @@ async function openEditBill(id) {
           <input name="reason" placeholder="e.g. wrong quantity" />
         </label>
       </div>
-      <div id="ebTotals" class="muted" style="margin-top:8px"></div>
+      <div id="ebTotals" class="muted mt-8"></div>
     </form>`,
     "editBillForm",
     "modal-wide"
@@ -1764,11 +1993,11 @@ async function openEditBill(id) {
       .map(
         (l, idx) => `<tr>
           <td>${esc(l.name)} <span class="muted">${esc(l.code)}</span></td>
-          <td><input data-eb="q" data-idx="${idx}" type="number" min="0" step="any" value="${l.quantity}" style="width:80px" /></td>
-          <td><input data-eb="p" data-idx="${idx}" type="number" min="0" step="any" value="${l.price}" style="width:90px" /></td>
-          <td><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${l.discount}" style="width:80px" /></td>
-          <td>₹ ${money(lineTotal(l))}</td>
-          <td><button type="button" class="btn danger sm" data-eb-del="${idx}">✕</button></td>
+          <td><input data-eb="q" data-idx="${idx}" type="number" min="0" step="any" value="${l.quantity}" class="w-80" /></td>
+          <td><input data-eb="p" data-idx="${idx}" type="number" min="0" step="any" value="${l.price}" class="w-90" /></td>
+          <td><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${l.discount}" class="w-80" /></td>
+          <td class="num">₹ ${money(lineTotal(l))}</td>
+          <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-eb-del="${idx}" title="Remove line">✕</button></td>
         </tr>`
       )
       .join("");
@@ -1872,15 +2101,15 @@ async function openReturn(id) {
     <form id="retForm">
       ${(inv.items || [])
         .map(
-          (it) => `<label class="row" style="display:flex;gap:8px;margin:8px 0;align-items:center">
-            <span style="flex:1">${esc(it.name)}</span>
-            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" style="width:90px" />
+          (it) => `<label class="row ret-row">
+            <span class="ret-name">${esc(it.name)}</span>
+            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" class="ret-qty" />
           </label>`
         )
         .join("")}
-      <label class="row" style="display:block;margin-top:10px">
-        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Reason (optional)</span>
-        <input name="reason" type="text" placeholder="e.g. damaged, wrong item" style="width:100%;margin-top:4px" />
+      <label class="row ret-reason">
+        <span>Reason (optional)</span>
+        <input name="reason" type="text" placeholder="e.g. damaged, wrong item" />
       </label>
     </form>`, "retForm");
   document.getElementById("retForm").addEventListener("submit", async (e) => {
@@ -1902,24 +2131,260 @@ async function openReturn(id) {
 
 function renderPurchases(view) {
   view.innerHTML = `
+    ${filterToolbarHTML(state.purchaseFilter, state.purchaseFrom, state.purchaseTo, `${state.purchases.length} purchase${state.purchases.length === 1 ? "" : "s"}`)}
     <div class="toolbar"><button class="btn" id="newPurchase">New purchase</button></div>
     <div class="card table-wrap">
-      <table>
-        <thead><tr><th>No</th><th>Supplier</th><th>Total</th><th>Date</th><th></th></tr></thead>
+      <table class="data-table purchases-list">
+        <thead><tr><th>No</th><th>Date</th><th>Supplier</th><th class="num">Total</th><th class="num">Paid</th><th>Status</th><th class="actions-col"></th></tr></thead>
         <tbody>
           ${state.purchases
-            .map(
-              (p) =>
-                `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.party_name)}</td><td>₹ ${money(p.total)}</td><td>${esc(p.created_at)}</td>
-                <td><button class="btn ghost sm" data-pret="${p.id}">Return</button></td></tr>`
-            )
-            .join("")}
+            .map((p) => {
+              const paid = Number(p.paid) || 0;
+              const total = Number(p.total) || 0;
+              const status = paid >= total - 0.009 ? "paid" : paid > 0 ? "partial" : "unpaid";
+              return `<tr>
+                <td>${esc(p.purchase_no)}</td><td>${esc(fmtDateTime(p.created_at))}</td><td>${esc(p.party_name)}</td>
+                <td class="num">₹ ${money(total)}</td><td class="num">₹ ${money(paid)}</td>
+                <td><span class="badge badge-${status}">${status}</span></td>
+                <td class="actions-col">
+                  <div class="row-menu-wrap">
+                    <button class="btn ghost sm icon-btn" data-menu="${p.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
+                    <div class="row-menu" id="rmenu-pur-${p.id}" role="menu">
+                      <button data-act="view" data-id="${p.id}" role="menuitem">View</button>
+                      <button data-act="ret" data-id="${p.id}" role="menuitem">Return to supplier</button>
+                      ${state.settings.bill_passcode_set ? `
+                      <button data-act="edit" data-id="${p.id}" role="menuitem">Edit</button>
+                      <button class="danger" data-act="del" data-id="${p.id}" role="menuitem">Delete</button>` : ""}
+                    </div>
+                  </div>
+                </td>
+              </tr>`;
+            })
+            .join("") || `<tr><td colspan="7" class="empty-state-cell">No purchases found for this period.</td></tr>`}
         </tbody>
       </table>
     </div>`;
   document.getElementById("newPurchase").addEventListener("click", () => switchView("new-purchase"));
-  view.querySelectorAll("[data-pret]").forEach((btn) => {
-    btn.addEventListener("click", () => openPurchaseReturn(btn.dataset.pret));
+  wireDateFilter(view, (f, from, to) => {
+    state.purchaseFilter = f;
+    if (from) { state.purchaseFrom = from; state.purchaseTo = to; }
+    return f;
+  }, loadPurchases);
+  view.querySelectorAll("[data-menu]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById(`rmenu-pur-${btn.dataset.menu}`);
+      const wasOpen = menu.classList.contains("open");
+      closeRowMenus();
+      if (!wasOpen) {
+        menu.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+  });
+  view.querySelectorAll(".row-menu [data-act]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      closeRowMenus();
+      try {
+        if (btn.dataset.act === "view") {
+          await purchaseViewModal(id);
+        } else if (btn.dataset.act === "ret") {
+          openPurchaseReturn(id);
+        } else if (btn.dataset.act === "edit") {
+          openEditPurchase(id);
+        } else if (btn.dataset.act === "del") {
+          const pur = state.purchases.find((x) => String(x.id) === String(id));
+          const passcode = await askPasscode(`Delete purchase ${pur ? pur.purchase_no : ""}`);
+          if (passcode === null) return;
+          const reason = prompt("Reason for deleting");
+          if (reason === null) return;
+          await api(`/api/purchases/${id}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
+          setStatus("Purchase deleted", "ok");
+          await loadPurchases();
+        }
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
+  });
+}
+
+// Read-only purchase detail used by the Purchases list "View" action.
+async function purchaseViewModal(id) {
+  const p = (await api(`/api/purchases/${id}`)).purchase;
+  const due = Math.max(0, Number(p.total) - Number(p.paid));
+  openModal(`<h3>${esc(p.purchase_no)}</h3>
+    <p class="muted">${esc(p.party_name || "")} · ${esc(fmtDateTime(p.created_at))}</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>GST%</th><th>Amount</th></tr></thead>
+      <tbody>${(p.items || []).map((it) => `<tr>
+        <td>${esc(it.name)}</td><td>${money(it.quantity)}</td><td>₹ ${money(it.price)}</td>
+        <td>${it.gst_percent}%</td><td>₹ ${money(it.line_total)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <div class="table-wrap"><table><tbody>
+      <tr><td>Subtotal</td><td>₹ ${money(p.subtotal)}</td></tr>
+      <tr><td>GST</td><td>₹ ${money(p.tax)}</td></tr>
+      <tr><td><b>Total</b></td><td><b>₹ ${money(p.total)}</b></td></tr>
+      <tr><td>Paid</td><td>₹ ${money(p.paid)}</td></tr>
+      ${due > 0 ? `<tr><td><b>Due</b></td><td><b class="due-amount">₹ ${money(due)}</b></td></tr>` : ""}
+    </tbody></table></div>`);
+}
+
+// Edit a purchase bill - passcode-gated, same as sales bills.
+async function openEditPurchase(id) {
+  let pur;
+  try {
+    pur = (await api(`/api/purchases/${id}`)).purchase;
+  } catch (err) {
+    return setStatus(err.message, "error");
+  }
+  const passcode = await askPasscode(`Edit purchase ${pur.purchase_no}`);
+  if (passcode === null) return;
+
+  if (!state.parties.length) await loadParties(false);
+  if (!state.items.length) await loadItems(false);
+  const suppliers = (state.parties || []).filter((p) => p.type === "supplier");
+
+  const lines = (pur.items || []).map((it) => ({
+    code: it.code,
+    name: it.name,
+    item_id: it.item_id,
+    quantity: Number(it.quantity),
+    price: Number(it.price),
+    gst_percent: Number(it.gst_percent) || 0
+  }));
+
+  const lineTotal = (l) => l.quantity * l.price * (1 + l.gst_percent / 100);
+
+  openModal(
+    `<form id="editPurForm">
+      <h3>Edit ${esc(pur.purchase_no)} <span class="muted fs-13">${esc(fmtD(pur.created_at))}</span></h3>
+      <div class="form-grid">
+        <label>Supplier
+          <select name="party_id">
+            <option value="">Walk-in / none</option>
+            ${suppliers.map((s) => `<option value="${s.id}" ${Number(pur.party_id) === Number(s.id) ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap my-10">
+        <table>
+          <thead><tr><th>Item</th><th class="w-90">Qty</th><th class="w-110">Purchase price</th><th class="num">GST%</th><th class="num">Line total</th><th class="actions-col"></th></tr></thead>
+          <tbody id="epLines"></tbody>
+        </table>
+      </div>
+      <input id="epSearch" type="text" placeholder="Search item by code or name to add…" autocomplete="off" />
+      <div id="epSugs" class="table-wrap"></div>
+      <div class="form-grid mt-12">
+        <label>Paid amount
+          <input name="paid" type="number" min="0" step="any" value="${money(pur.paid)}" />
+        </label>
+        <label>Reason (optional)
+          <input name="reason" placeholder="e.g. wrong quantity" />
+        </label>
+      </div>
+      <div id="epTotals" class="muted mt-8"></div>
+    </form>`,
+    "editPurForm",
+    "modal-wide"
+  );
+
+  const tbody = document.getElementById("epLines");
+  const recalc = () => {
+    const sub = lines.reduce((a, l) => a + l.quantity * l.price, 0);
+    const tax = lines.reduce((a, l) => a + l.quantity * l.price * l.gst_percent / 100, 0);
+    document.getElementById("epTotals").textContent =
+      `Subtotal ₹ ${money(sub)} · Tax ₹ ${money(tax)} · Total ₹ ${money(sub + tax)}`;
+  };
+
+  const renderLines = () => {
+    tbody.innerHTML = lines
+      .map(
+        (l, idx) => `<tr>
+          <td>${esc(l.name)} <span class="muted">${esc(l.code)}</span></td>
+          <td><input data-ep="q" data-idx="${idx}" type="number" min="0" step="any" value="${l.quantity}" class="w-80" /></td>
+          <td><input data-ep="p" data-idx="${idx}" type="number" min="0" step="any" value="${l.price}" class="w-100" /></td>
+          <td class="num">${l.gst_percent}%</td>
+          <td class="num">₹ ${money(lineTotal(l))}</td>
+          <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-ep-del="${idx}" title="Remove line">✕</button></td>
+        </tr>`
+      )
+      .join("");
+    tbody.querySelectorAll("[data-ep]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const l = lines[Number(inp.dataset.idx)];
+        if (!l) return;
+        const v = parseFloat(inp.value) || 0;
+        if (inp.dataset.ep === "q") l.quantity = v;
+        if (inp.dataset.ep === "p") l.price = v;
+        const row = inp.closest("tr");
+        row.children[4].textContent = `₹ ${money(lineTotal(l))}`;
+        recalc();
+      });
+    });
+    tbody.querySelectorAll("[data-ep-del]").forEach((b) => {
+      b.addEventListener("click", () => {
+        lines.splice(Number(b.dataset.epDel), 1);
+        renderLines();
+        recalc();
+      });
+    });
+  };
+  renderLines();
+  recalc();
+
+  const searchInput = document.getElementById("epSearch");
+  const sugs = document.getElementById("epSugs");
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) {
+      sugs.innerHTML = "";
+      return;
+    }
+    const found = state.items
+      .filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q))
+      .slice(0, 6);
+    sugs.innerHTML = found
+      .map((i) => `<div class="toolbar"><span>${esc(i.name)} <span class="muted">${esc(i.code)}</span></span>
+        <button type="button" class="btn sm" data-ep-add="${esc(i.code)}">Add</button></div>`)
+      .join("");
+    sugs.querySelectorAll("[data-ep-add]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const item = state.items.find((i) => i.code === b.dataset.epAdd);
+        if (!item) return;
+        const existing = lines.find((l) => l.code === item.code);
+        if (existing) existing.quantity += 1;
+        else lines.push({ code: item.code, name: item.name, item_id: item.id, quantity: 1, price: Number(item.purchase_price) || 0, gst_percent: Number(item.gst_percent) || 0 });
+        searchInput.value = "";
+        sugs.innerHTML = "";
+        renderLines();
+        recalc();
+      });
+    });
+  });
+
+  document.getElementById("editPurForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!lines.length) return setStatus("Purchase must have at least one item", "error");
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await api(`/api/purchases/${pur.id}`, {
+        method: "PUT",
+        body: {
+          passcode,
+          party_id: fd.party_id || null,
+          paid: fd.paid,
+          reason: fd.reason || "",
+          items: lines.map((l) => ({ code: l.code, item_id: l.item_id, quantity: l.quantity, price: l.price, gst_percent: l.gst_percent }))
+        }
+      });
+      closeModal();
+      setStatus(`Purchase ${pur.purchase_no} updated`, "ok");
+      await loadPurchases();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
   });
 }
 
@@ -1930,15 +2395,15 @@ async function openPurchaseReturn(id) {
     <form id="pretForm">
       ${(pur.items || [])
         .map(
-          (it) => `<label class="row" style="display:flex;gap:8px;margin:8px 0;align-items:center">
-            <span style="flex:1">${esc(it.name)}</span>
-            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" style="width:90px" />
+          (it) => `<label class="row ret-row">
+            <span class="ret-name">${esc(it.name)}</span>
+            <input name="q_${it.id}" type="number" min="0" max="${it.quantity}" step="1" value="0" class="ret-qty" />
           </label>`
         )
         .join("")}
-      <label class="row" style="display:block;margin-top:10px">
-        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Reason (optional)</span>
-        <input name="reason" type="text" placeholder="e.g. damaged stock" style="width:100%;margin-top:4px" />
+      <label class="row ret-reason">
+        <span>Reason (optional)</span>
+        <input name="reason" type="text" placeholder="e.g. damaged stock" />
       </label>
     </form>`, "pretForm");
   document.getElementById("pretForm").addEventListener("submit", async (e) => {
@@ -1991,7 +2456,7 @@ function renderNewPurchase(view) {
   view.innerHTML = `
     <div class="toolbar">
       <button type="button" class="btn ghost" id="purBack">← Back</button>
-      <h3 style="margin:0">New purchase</h3>
+      <h3 class="m-0">New purchase</h3>
     </div>
     <div class="pur-pos">
       <div class="pur-pos-left">
@@ -2007,29 +2472,29 @@ function renderNewPurchase(view) {
             <h3>Purchase Items</h3>
             <span class="item-count" id="purItemCount">0 items</span>
           </div>
-          <div class="items-table-container" style="min-height:180px">
+          <div class="items-table-container minh-180">
             <table id="purTable" class="items-table">
               <thead>
                 <tr>
                   <th>Item</th>
-                  <th style="width:70px">Qty</th>
-                  <th style="width:90px">Purchase</th>
-                  <th style="width:90px">MRP</th>
-                  <th style="width:90px">Sale</th>
-                  <th style="width:60px">GST%</th>
-                  <th style="width:90px">Total</th>
-                  <th style="width:40px"></th>
+                  <th class="num w-70">Qty</th>
+                  <th class="num w-90">Purchase</th>
+                  <th class="num w-90">MRP</th>
+                  <th class="num w-90">Sale</th>
+                  <th class="num w-60">GST%</th>
+                  <th class="num w-90">Total</th>
+                  <th class="actions-col w-40"></th>
                 </tr>
               </thead>
               <tbody id="purLineBody"></tbody>
             </table>
           </div>
         </div>
-        <div class="form-error" id="purTableError" style="display:none; margin-top:8px"></div>
+        <div class="form-error mt-8" id="purTableError" style="display:none"></div>
       </div>
       <div class="pur-pos-right">
         <form id="purForm" class="order-summary">
-          <h3 class="full" style="margin:0 0 8px 0">Purchase Summary</h3>
+          <h3 class="full pur-sum-title">Purchase Summary</h3>
           <label class="full">Supplier
             <select name="party_id">
               <option value="">Walk-in / No supplier</option>
@@ -2043,9 +2508,9 @@ function renderNewPurchase(view) {
             <input name="paid" id="purPaid" type="number" step="1" value="0" />
           </label>
           <div class="summary-row"><span>Balance</span><span id="purBalance">₹ 0.00</span></div>
-          <div class="full" style="margin-top:12px">
+          <div class="full mt-12">
             <button type="submit" class="btn green full" id="purSave">Save purchase</button>
-            <button type="button" class="btn ghost full" id="purCancel" style="margin-top:8px">Cancel</button>
+            <button type="button" class="btn ghost full mt-8" id="purCancel">Cancel</button>
           </div>
         </form>
       </div>
@@ -2054,6 +2519,33 @@ function renderNewPurchase(view) {
   const lines = [];
   const searchInput = document.getElementById("purSearch");
   const suggBox = document.getElementById("purSugg");
+  // Add a catalogue item as a purchase line (defaults match the existing
+  // suggestion click: qty 1, purchase price, MRP=sale price, GST 0%).
+  const addItemToLines = (item) => {
+    const existing = lines.find((l) => l.code === item.code);
+    if (existing) {
+      // Repeat scan of the same product - bump its quantity instead of a
+      // duplicate row.
+      existing.quantity += 1;
+    } else {
+      const purchasePrice = Number(item.purchase_price || 0);
+      const mrp = Number(item.mrp || item.sale_price || 0);
+      lines.push({
+        item_id: item.id,
+        code: item.code,
+        name: item.name,
+        quantity: 1,
+        price: purchasePrice,
+        mrp: mrp,
+        sale_price: mrp,
+        gst_percent: 0,
+        line_total: purchasePrice,
+      });
+    }
+    searchInput.value = "";
+    suggBox.style.display = "none";
+    draw();
+  };
   const showSuggestions = () => {
     const val = searchInput.value.trim().toLowerCase();
     if (!val) {
@@ -2077,35 +2569,39 @@ function renderNewPurchase(view) {
           itemForm();
           suggBox.style.display = "none";
         } else {
-          const code = el.dataset.code;
-          const item = state.items.find((i) => i.code === code);
-          if (item) {
-            const purchasePrice = Number(item.purchase_price || 0);
-            const mrp = Number(item.mrp || item.sale_price || 0);
-            const qty = 1;
-            const gstPercent = 0;
-            const taxable = qty * purchasePrice;
-            const lineTax = Math.round(taxable * gstPercent / 100 * 100) / 100;
-            lines.push({
-              item_id: item.id,
-              code: item.code,
-              name: item.name,
-              quantity: qty,
-              price: purchasePrice,
-              mrp: mrp,
-              sale_price: mrp,
-              gst_percent: gstPercent,
-              line_total: Math.round((taxable + lineTax) * 100) / 100,
-            });
-            searchInput.value = "";
-            suggBox.style.display = "none";
-            draw();
-          }
+          const item = state.items.find((i) => i.code === el.dataset.code);
+          if (item) addItemToLines(item);
         }
       })
     );
   };
-  searchInput.addEventListener("input", showSuggestions);
+  // Barcode fast-add: scanners type the full code in a burst. When the input
+  // is an exact code match - and not also the prefix of a longer code - the
+  // item is added automatically after a short settle delay. Any further
+  // keystroke cancels it, so normal typing/searching is unaffected.
+  let scanTimer = null;
+  searchInput.addEventListener("input", () => {
+    showSuggestions();
+    if (scanTimer) {
+      clearTimeout(scanTimer);
+      scanTimer = null;
+    }
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) return;
+    const exact = state.items.find((i) => i.code.toLowerCase() === q);
+    if (!exact) return;
+    const prefixOfLonger = state.items.some(
+      (i) => i.code.length > q.length && i.code.toLowerCase().startsWith(q)
+    );
+    if (prefixOfLonger) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = null;
+      // Bail if the box changed while settling or focus moved elsewhere.
+      if (document.activeElement !== searchInput || searchInput.value.trim().toLowerCase() !== q) return;
+      addItemToLines(exact);
+      searchInput.focus();
+    }, 140);
+  });
   searchInput.addEventListener("focus", showSuggestions);
   searchInput.addEventListener("blur", () => (suggBox.style.display = "none"));
   const draw = () => {
@@ -2143,13 +2639,13 @@ function renderNewPurchase(view) {
         (l, i) => `
         <tr class="${l._error ? "pur-row-error" : ""}" title="${l._error ? esc(l._error) : ""}">
           <td>${esc(l.name)}</td>
-          <td><input type="number" step="1" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
-          <td><input type="number" step="1" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
-          <td><input type="number" step="1" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
-          <td><input type="number" step="1" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
-          <td><input type="number" step="1" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" style="width:100%" /></td>
-          <td>₹ ${money(l.line_total)}</td>
-          <td><button type="button" class="btn danger sm" data-i="${i}">x</button></td>
+          <td class="num"><input type="number" step="1" value="${l.quantity}" data-i="${i}" data-f="quantity" /></td>
+          <td class="num"><input type="number" step="1" value="${money(l.price)}" data-i="${i}" data-f="price" /></td>
+          <td class="num"><input type="number" step="1" value="${money(l.mrp)}" data-i="${i}" data-f="mrp" /></td>
+          <td class="num"><input type="number" step="1" value="${money(l.sale_price)}" data-i="${i}" data-f="sale_price" /></td>
+          <td class="num"><input type="number" step="1" value="${money(l.gst_percent)}" data-i="${i}" data-f="gst_percent" /></td>
+          <td class="num">₹ ${money(l.line_total)}</td>
+          <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-i="${i}" title="Remove line">✕</button></td>
         </tr>
       `
       )
@@ -2230,17 +2726,17 @@ function renderExpenses(view) {
       <button class="btn">Add expense</button>
     </form>
     <div class="card table-wrap">
-      <table>
-        <thead><tr><th>Category</th><th>Amount</th><th>Note</th><th>Date</th><th></th></tr></thead>
+      <table class="data-table expenses-list">
+        <thead><tr><th>Category</th><th class="num">Amount</th><th>Note</th><th>Date</th><th class="actions-col"></th></tr></thead>
         <tbody>
           ${state.expenses
             .map(
               (e) => `<tr>
-                <td>${esc(e.category)}</td><td>₹ ${money(e.amount)}</td><td>${esc(e.note)}</td><td>${esc(e.created_at)}</td>
-                <td><button class="btn danger sm" data-del="${e.id}">Delete</button></td>
+                <td>${esc(e.category)}</td><td class="num">₹ ${money(e.amount)}</td><td class="note-cell">${esc(e.note)}</td><td>${esc(e.created_at)}</td>
+                <td class="actions-col"><button class="btn danger sm" data-del="${e.id}">Delete</button></td>
               </tr>`
             )
-            .join("")}
+            .join("") || `<tr><td colspan="5" class="empty-state-cell">No expenses recorded yet.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -2275,8 +2771,8 @@ function renderSettings(view) {
   const d = state.drive || {};
   const w = state.whatsapp || {};
   view.innerHTML = `
-    <div class="pos">
-      <form class="card form-grid" id="setForm">
+    <div class="settings-layout">
+      <form class="card form-grid settings-form" id="setForm">
         <h3 class="full">Shop</h3>
         <label>Shop name
           <input name="shop_name" placeholder="Shop name" value="${esc(s.shop_name || "")}" />
@@ -2377,7 +2873,7 @@ function renderSettings(view) {
         <h3>Receipt preview</h3>
         <p class="help">Live preview of the thermal receipt template. Changes update instantly; save to keep them.</p>
         <div id="receiptPreview"></div>
-        <div class="toolbar" style="margin-top:10px">
+        <div class="toolbar mt-8">
           <button class="btn ghost" id="rcTestPrint">Print test receipt</button>
         </div>
       </div>
@@ -2387,7 +2883,7 @@ function renderSettings(view) {
         <p class="muted">Business number: ${esc(w.number || "—")}${w.sender_masked ? ` · Sender: ${esc(w.sender_masked)}` : ""}</p>
         <p class="muted">Auto-send after sale: ${s.whatsapp_auto_send === "1" ? "On" : "Off (cashier chooses)"}</p>
         <div class="toolbar">
-          <input id="waTestTo" type="tel" placeholder="Test number (default: shop)" style="max-width:200px" />
+          <input id="waTestTo" type="tel" placeholder="Test number (default: shop)" class="mw-200" />
           <button class="btn ghost" id="waTestConn">Test connection</button>
           <button class="btn ghost" id="waTest">Send test</button>
         </div>
@@ -2435,18 +2931,18 @@ function renderSettings(view) {
         <h3>Users</h3>
         <form id="userForm" class="toolbar">
           <input name="username" placeholder="Username" />
-          <input name="password" placeholder="Password" />
+          <input name="password" type="password" placeholder="Password" />
           <select name="role"><option>cashier</option><option>manager</option><option>admin</option></select>
           <button class="btn">Add user</button>
         </form>
         <div class="table-wrap">
-          <table><thead><tr><th>User</th><th>Role</th><th></th></tr></thead>
+          <table class="data-table"><thead><tr><th>User</th><th>Role</th><th class="actions-col"></th></tr></thead>
           <tbody>${(state.users || [])
             .map(
               (u) =>
-                `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><button class="btn danger sm" data-delu="${u.id}">Delete</button></td></tr>`
+                `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td class="actions-col"><button class="btn danger sm" data-delu="${u.id}">Delete</button></td></tr>`
             )
-            .join("")}</tbody></table>
+            .join("") || `<tr><td colspan="3" class="empty-state-cell">No users yet.</td></tr>`}</tbody></table>
         </div>
         <form id="pwForm" class="toolbar">
           <input name="password" type="password" placeholder="Change my password" />
@@ -2735,26 +3231,51 @@ async function confirmRestore(sel) {
   });
 }
 
+let modalReturnFocus = null;
 function openModal(html, formId = null, cardClass = "") {
+  modalReturnFocus = document.activeElement;
   const footer = formId
     ? `<div class="modal-footer">
+        <button type="button" class="btn ghost" id="closeModal" aria-label="Close dialog">Close</button>
         <button type="submit" form="${formId}" class="btn" id="saveModal">Save</button>
-        <button type="button" class="btn ghost" id="closeModal">Close</button>
       </div>`
     : `<div class="modal-footer">
-        <button type="button" class="btn ghost" id="closeModal">Close</button>
+        <button type="button" class="btn ghost" id="closeModal" aria-label="Close dialog">Close</button>
       </div>`;
-  modalEl.innerHTML = `<div class="modal-card ${esc(cardClass)}">${html}${footer}</div>`;
+  modalEl.innerHTML = `<div class="modal-card ${esc(cardClass)}" role="dialog" aria-modal="true" tabindex="-1">${html}${footer}</div>`;
+  const card = modalEl.querySelector(".modal-card");
+  const heading = card.querySelector("h3");
+  if (heading) {
+    heading.id = "modalTitle";
+    card.setAttribute("aria-labelledby", "modalTitle");
+  }
   modalEl.setAttribute("aria-hidden", "false");
   document.getElementById("closeModal").addEventListener("click", closeModal);
+  modalEl.onclick = (e) => {
+    if (e.target === modalEl) closeModal();
+  };
+  queueMicrotask(() => {
+    if (modalEl.getAttribute("aria-hidden") !== "false") return;
+    const target =
+      card.querySelector("[autofocus]") ||
+      card.querySelector("input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), button:not([disabled])") ||
+      card;
+    target.focus({ preventScroll: true });
+  });
 }
 
 function closeModal() {
   modalEl.setAttribute("aria-hidden", "true");
   modalEl.innerHTML = "";
+  modalEl.onclick = null;
+  if (modalReturnFocus && modalReturnFocus.isConnected) {
+    modalReturnFocus.focus({ preventScroll: true });
+  }
+  modalReturnFocus = null;
 }
 
 let quaggaRunning = false;
+let scannerReturnFocus = null;
 const recentScans = new Map();
 async function startScanner() {
   const modal = document.getElementById("scannerModal");
@@ -2763,6 +3284,8 @@ async function startScanner() {
     return;
   }
   modal.setAttribute("aria-hidden", "false");
+  scannerReturnFocus = document.activeElement;
+  document.getElementById("closeScanner")?.focus({ preventScroll: true });
   try {
     await Quagga.init({
       inputStream: {
@@ -2777,7 +3300,7 @@ async function startScanner() {
     Quagga.start();
     quaggaRunning = true;
   } catch (err) {
-    modal.setAttribute("aria-hidden", "true");
+    stopScanner();
     setStatus("Camera unavailable or permission denied", "error");
   }
 }
@@ -2786,6 +3309,10 @@ function stopScanner() {
   if (window.Quagga && quaggaRunning) Quagga.stop();
   quaggaRunning = false;
   document.getElementById("scannerModal").setAttribute("aria-hidden", "true");
+  if (scannerReturnFocus && scannerReturnFocus.isConnected) {
+    scannerReturnFocus.focus({ preventScroll: true });
+  }
+  scannerReturnFocus = null;
 }
 
 document.getElementById("closeScanner").addEventListener("click", stopScanner);
@@ -2799,6 +3326,31 @@ if (window.Quagga) {
     await addCode(code);
   });
 }
+
+// Close any open row-action menu on outside click or Escape
+function closeRowMenus() {
+  document.querySelectorAll(".row-menu.open").forEach((m) => m.classList.remove("open"));
+  document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach((b) => b.setAttribute("aria-expanded", "false"));
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".row-menu-wrap")) {
+    closeRowMenus();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const scannerOpen = document.getElementById("scannerModal")?.getAttribute("aria-hidden") === "false";
+    if (scannerOpen) {
+      stopScanner();
+      return;
+    }
+    if (modalEl.getAttribute("aria-hidden") === "false") {
+      closeModal();
+      return;
+    }
+    closeRowMenus();
+  }
+});
 
 document.addEventListener("keydown", (e) => {
   if (!state.user) return;
@@ -2871,13 +3423,23 @@ async function loadParties(rerender = true) {
   if (rerender) renderView();
 }
 async function loadSales() {
-  state.invoices = (await api("/api/invoices")).invoices;
+  let url = "/api/invoices";
+  if (state.salesFilter !== "all") {
+    const { from, to } = dateRangeFor(state.salesFilter, state.salesFrom, state.salesTo);
+    url += `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  }
+  state.invoices = (await api(url)).invoices;
   renderView();
 }
 async function loadPurchases() {
   await loadItems(false);
   await loadParties(false);
-  state.purchases = (await api("/api/purchases")).purchases;
+  let url = "/api/purchases";
+  if (state.purchaseFilter !== "all") {
+    const { from, to } = dateRangeFor(state.purchaseFilter, state.purchaseFrom, state.purchaseTo);
+    url += `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  }
+  state.purchases = (await api(url)).purchases;
   renderView();
 }
 async function loadExpenses() {

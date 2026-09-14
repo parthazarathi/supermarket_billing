@@ -685,11 +685,11 @@ const ReportsModule = (() => {
       <div class="rpt-layout">
         <aside class="rpt-nav" role="navigation" aria-label="Report categories">
           ${CATEGORIES.map(c => `
-            <button class="rpt-nav-btn ${s.cat === c.id ? 'active' : ''}" data-cat="${c.id}">${esc(c.label)}</button>
+            <button class="rpt-nav-btn ${s.cat === c.id ? 'active' : ''}" data-cat="${c.id}" aria-current="${s.cat === c.id ? 'true' : 'false'}">${esc(c.label)}</button>
           `).join('')}
         </aside>
         <div class="rpt-main">
-          <div class="rpt-tabs" role="tablist">
+          <div class="rpt-tabs" role="tablist" aria-label="Reports">
             ${reportsInCat(s.cat).map(r => `
               <button class="rpt-tab ${s.key === r.key ? 'active' : ''}" data-rpt="${esc(r.key)}" role="tab" aria-selected="${s.key === r.key}">${esc(r.title)}</button>
             `).join('')}
@@ -722,7 +722,7 @@ const ReportsModule = (() => {
       <div class="rpt-filters card">
         <div class="rpt-preset-row">
           ${PRESETS.map(([id, label]) => `
-            <button class="chip ${s.preset === id ? 'active' : ''}" data-preset="${id}">${label}</button>
+            <button class="chip ${s.preset === id ? 'active' : ''}" data-preset="${id}" aria-pressed="${s.preset === id}">${label}</button>
           `).join('')}
         </div>
         <div class="rpt-filter-row">
@@ -735,7 +735,7 @@ const ReportsModule = (() => {
           ${(def.filters || []).map(f => `
             <label class="rpt-picker">${esc(f.label)} <select data-filter="${esc(f.param)}" id="rptF_${esc(f.param)}"></select></label>
           `).join('')}
-          ${def.search ? `<input id="rptSearch" class="rpt-search" placeholder="${esc(def.search)}" value="${esc(s.search)}" />` : ''}
+          ${def.search ? `<input id="rptSearch" class="rpt-search" placeholder="${esc(def.search)}" value="${esc(s.search)}" aria-label="Search report" />` : ''}
           <div class="rpt-actions">
             ${s.preset === 'custom' && !def.noDates ? `<button class="btn" id="rptShow">Show Report</button>` : ''}
             <button class="btn ghost" id="rptReset">Reset</button>
@@ -892,6 +892,12 @@ const ReportsModule = (() => {
         if (s.sortKey === k) s.sortDir = -(s.sortDir || 1); else { s.sortKey = k; s.sortDir = 1; }
         renderContent();
       });
+      th.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          th.click();
+        }
+      });
     });
     el.querySelectorAll('[data-page]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -953,7 +959,7 @@ const ReportsModule = (() => {
       <div class="card table-wrap rpt-table-wrap">
         <table class="rpt-table">
           <thead><tr>${columns.map(c =>
-            `<th data-sort="${esc(c.k)}" class="${c.t === 'money' || c.t === 'num' || c.t === 'qty' || c.t === 'pct' ? 'num' : ''}">
+            `<th data-sort="${esc(c.k)}" tabindex="0"${s.sortKey === c.k ? ` aria-sort="${s.sortDir === 1 ? 'ascending' : 'descending'}"` : ''} class="${c.t === 'money' || c.t === 'num' || c.t === 'qty' || c.t === 'pct' ? 'num' : ''}">
               ${esc(c.l)}${s.sortKey === c.k ? (s.sortDir === 1 ? ' ▲' : ' ▼') : ''}</th>`
           ).join('')}</tr></thead>
           <tbody>

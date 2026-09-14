@@ -1,219 +1,167 @@
-LOGIN-EMPTY status=  | still on login: true
-LOGIN-WRONG status= Invalid username or password
+LOGIN-EMPTY status= Default password in use — please change it under Settings | still on login: false
+LOGIN-WRONG status= Default password in use — please change it under Settings
 LOGIN-OK view= settings user= admin
 RELOAD still-logged-in: true view= settings
 LOGOUT shows login form: true
 BACK-AFTER-LOGOUT protected content shown: false | login form: false
-VIEW dashboard @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
-VIEW pos @1366x768 overflowX=false sw=1366 cw=1366 consoleErr=0 failedReq=0 badResp=[]
-VIEW items @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
-VIEW parties @1366x768 overflowX=false sw=1366 cw=1366 consoleErr=0 failedReq=0 badResp=[]
-VIEW sales @1366x768 overflowX=false sw=1366 cw=1366 consoleErr=0 failedReq=0 badResp=[]
-VIEW purchases @1366x768 overflowX=false sw=1366 cw=1366 consoleErr=0 failedReq=0 badResp=[]
-VIEW expenses @1366x768 overflowX=false sw=1366 cw=1366 consoleErr=0 failedReq=0 badResp=[]
-VIEW reports @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
-VIEW settings @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
+VIEW dashboard @1366x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
+VIEW pos @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
+VIEW items @1366x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
+VIEW parties @1366x768 overflowX=false sw=1358 cw=1358 consoleErr=0 failedReq=0 badResp=[]
+VIEW sales @1366x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
+VIEW purchases @1366x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
+VIEW expenses @1366x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
+VIEW reports @1366x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
+VIEW settings @1366x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 VIEW dashboard @1920x1080 overflowX=false sw=1912 cw=1912 consoleErr=0 failedReq=0 badResp=[]
-VIEW pos @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
+VIEW pos @1920x1080 overflowX=false sw=1912 cw=1912 consoleErr=0 failedReq=0 badResp=[]
 VIEW items @1920x1080 overflowX=false sw=1912 cw=1912 consoleErr=0 failedReq=0 badResp=[]
 VIEW parties @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
 VIEW sales @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
 VIEW purchases @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
 VIEW expenses @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
-VIEW reports @1920x1080 overflowX=false sw=1912 cw=1912 consoleErr=0 failedReq=0 badResp=[]
+VIEW reports @1920x1080 overflowX=false sw=1920 cw=1920 consoleErr=0 failedReq=0 badResp=[]
 VIEW settings @1920x1080 overflowX=false sw=1912 cw=1912 consoleErr=0 failedReq=0 badResp=[]
 VIEW dashboard @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
-VIEW pos @1024x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
+VIEW pos @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 VIEW items @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 VIEW parties @1024x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
 VIEW sales @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 VIEW purchases @1024x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
 VIEW expenses @1024x768 overflowX=false sw=1024 cw=1024 consoleErr=0 failedReq=0 badResp=[]
-VIEW reports @1024x768 overflowX=true sw=1155 cw=1016 consoleErr=0 failedReq=0 badResp=[]
+VIEW reports @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 VIEW settings @1024x768 overflowX=false sw=1016 cw=1016 consoleErr=0 failedReq=0 badResp=[]
 SWEEP dashboard: 19 visible buttons
-  BTN [Today] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Yesterday] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Last 7 Days] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Last 30 Days] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [This Month] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Custom] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [+ New Bill] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [+ Add Item] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [+ New Purchase] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [+ Add Expense] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Stock Adjustment] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Reports] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [7D] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [30D] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [This Month] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [View Sales Report] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [View Inventory] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [View All] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [View All] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-SWEEP pos: 9 visible buttons
-  BTN [BILL-20260913-0001] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [addBtn] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [scanBtn] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Cash] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  consoleErr=["NotAllowedError: Permission denied"]
-  BTN [UPI] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Card] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-SWEEP items: 46 visible buttons
-  BTN [newItem] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Adjust] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-DIALOG: confirm Delete this item?
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
+  BTN [Today] clicked=ok status:''->'' 
+  BTN [Yesterday] clicked=gone status:''->''  gone-before-click
+  BTN [Last 7 Days] clicked=gone status:''->''  gone-before-click
+  BTN [Last 30 Days] clicked=gone status:''->''  gone-before-click
+  BTN [This Month] clicked=gone status:''->''  gone-before-click
+  BTN [Custom] clicked=gone status:''->''  gone-before-click
+  BTN [+ New Bill] clicked=gone status:''->''  gone-before-click
+  BTN [+ Add Item] clicked=gone status:''->''  gone-before-click
+  BTN [+ New Purchase] clicked=gone status:''->''  gone-before-click
+  BTN [+ Add Expense] clicked=gone status:''->''  gone-before-click
+  BTN [Stock Adjustment] clicked=gone status:''->''  gone-before-click
+  BTN [Reports] clicked=gone status:''->''  gone-before-click
+  BTN [7D] clicked=gone status:''->''  gone-before-click
+  BTN [30D] clicked=gone status:''->''  gone-before-click
+  BTN [This Month] clicked=gone status:''->''  gone-before-click
+  BTN [View Sales Report] clicked=gone status:''->''  gone-before-click
+  BTN [View Inventory] clicked=gone status:''->''  gone-before-click
+  BTN [View All] clicked=gone status:''->''  gone-before-click
+  BTN [View All] clicked=gone status:''->''  gone-before-click
+SWEEP pos: 10 visible buttons
+  BTN [BILL-20260913-0001] clicked=ok status:''->'' 
+  BTN [addBtn] clicked=ok status:''->'' 
+  BTN [scanBtn] clicked=ok status:''->'Camera unavailable or permission denied' 
+  BTN [clearCartBtn] clicked=ok status:'Camera unavailable or permission denied'->'Camera unavailable or permission denied' 
+  BTN [Cash] clicked=ok status:'Camera unavailable or permission denied'->'Camera unavailable or permission denied' 
+  BTN [UPI] clicked=gone status:'Camera unavailable or permission denied'->'Camera unavailable or permission denied'  gone-before-click
+  BTN [Card] clicked=gone status:'Camera unavailable or permission denied'->'Camera unavailable or permission denied'  gone-before-click
+SWEEP items: 17 visible buttons
+  BTN [newItem] clicked=ok status:''->'' opens-modal
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
+  BTN [⋯] clicked=ok status:''->'' 
 SWEEP parties: 24 visible buttons
-  BTN [Customers] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Suppliers] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [newParty] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Edit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Receive] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Delete] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-SWEEP sales: 35 visible buttons
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Pay] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Print] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Edit] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' opens-modal
-SWEEP purchases: 2 visible buttons
-  BTN [newPurchase] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Return] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-SWEEP expenses: 2 visible buttons
-  BTN [Add expense] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  consoleErr=["Error: NOT NULL constraint failed: expenses.amount\n    at api (http://localhost:5056/script.js:100:11)\n    at async HTMLFormElement.<anonymous> (http://localhost:5056/script.js:2114:5)"] badResp=["400 http://localhost:5056/api/expenses"]
-  BTN [Delete] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
+  BTN [Customers] clicked=ok status:''->'' 
+  BTN [Suppliers] clicked=gone status:''->''  gone-before-click
+  BTN [newParty] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+  BTN [Edit] clicked=gone status:''->''  gone-before-click
+  BTN [Receive] clicked=gone status:''->''  gone-before-click
+  BTN [Delete] clicked=gone status:''->''  gone-before-click
+SWEEP sales: 16 visible buttons
+  BTN [All] clicked=ok status:''->'' 
+  BTN [Today] clicked=gone status:''->''  gone-before-click
+  BTN [This Week] clicked=gone status:''->''  gone-before-click
+  BTN [This Month] clicked=gone status:''->''  gone-before-click
+  BTN [Custom] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+SWEEP purchases: 7 visible buttons
+  BTN [All] clicked=ok status:''->'' 
+  BTN [Today] clicked=gone status:''->''  gone-before-click
+  BTN [This Week] clicked=gone status:''->''  gone-before-click
+  BTN [This Month] clicked=gone status:''->''  gone-before-click
+  BTN [Custom] clicked=gone status:''->''  gone-before-click
+  BTN [newPurchase] clicked=gone status:''->''  gone-before-click
+  BTN [⋯] clicked=gone status:''->''  gone-before-click
+SWEEP expenses: 1 visible buttons
+  BTN [Add expense] clicked=ok status:''->'' 
 SWEEP reports: 24 visible buttons
-  BTN [Overview] clicked=ok status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings' 
-  BTN [Sales] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Inventory] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Purchases] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Profit & Loss] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Payments] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Customers] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Suppliers] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Returns & Adj.] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [GST / Tax] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Cashier / Staff] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Audit] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Business Overview] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Today] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Yesterday] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [This Week] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Last Week] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [This Month] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Last Month] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [This Year] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [Custom Range] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [rptReset] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [rptCsv] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-  BTN [rptPrint] clicked=gone status:'Default password in use — please change it under Settings'->'Default password in use — please change it under Settings'  gone-before-click
-SWEEP settings: 10 visible buttons
-  BTN [Save settings] clicked=ok status:'Default password in use — please change it under Settings'->'Settings saved' 
-  BTN [Add user] clicked=ok status:'Settings saved'->'Settings saved' 
+  BTN [Overview] clicked=ok status:''->'' 
+  BTN [Sales] clicked=gone status:''->''  gone-before-click
+  BTN [Inventory] clicked=gone status:''->''  gone-before-click
+  BTN [Purchases] clicked=gone status:''->''  gone-before-click
+  BTN [Profit & Loss] clicked=gone status:''->''  gone-before-click
+  BTN [Payments] clicked=gone status:''->''  gone-before-click
+  BTN [Customers] clicked=gone status:''->''  gone-before-click
+  BTN [Suppliers] clicked=gone status:''->''  gone-before-click
+  BTN [Returns & Adj.] clicked=gone status:''->''  gone-before-click
+  BTN [GST / Tax] clicked=gone status:''->''  gone-before-click
+  BTN [Cashier / Staff] clicked=gone status:''->''  gone-before-click
+  BTN [Audit] clicked=gone status:''->''  gone-before-click
+  BTN [Business Overview] clicked=gone status:''->''  gone-before-click
+  BTN [Today] clicked=gone status:''->''  gone-before-click
+  BTN [Yesterday] clicked=gone status:''->''  gone-before-click
+  BTN [This Week] clicked=gone status:''->''  gone-before-click
+  BTN [Last Week] clicked=gone status:''->''  gone-before-click
+  BTN [This Month] clicked=gone status:''->''  gone-before-click
+  BTN [Last Month] clicked=gone status:''->''  gone-before-click
+  BTN [This Year] clicked=gone status:''->''  gone-before-click
+  BTN [Custom Range] clicked=gone status:''->''  gone-before-click
+  BTN [rptReset] clicked=gone status:''->''  gone-before-click
+  BTN [rptCsv] clicked=gone status:''->''  gone-before-click
+  BTN [rptPrint] clicked=gone status:''->''  gone-before-click
+SWEEP settings: 13 visible buttons
+  BTN [Save settings] clicked=ok status:''->'Settings saved' 
+  BTN [waTestConn] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [waTest] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [localBackup] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [backupList] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [Add user] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [Delete] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
+  BTN [Delete] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
   BTN [Delete] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
   BTN [Update password] clicked=gone status:'Settings saved'->'Settings saved'  gone-before-click
