@@ -19,7 +19,7 @@
     "inventory",
     "supermarket"
   ],
-  "author": "",
+  "author": "MartPOS",
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -45,6 +45,7 @@
   "build": {
     "appId": "com.martpos.app",
     "productName": "MartPOS",
+    "copyright": "Copyright © 2026 MartPOS",
     "directories": {
       "output": "dist-app"
     },
@@ -68,7 +69,13 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "signtoolOptions": {
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      }
     },
     "nsis": {
       "oneClick": false,

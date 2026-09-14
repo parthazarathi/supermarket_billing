@@ -29,40 +29,7 @@ const { app: electronApp, BrowserWindow, dialog, session, shell } = electronModu
 
 // ---- file logging (must be set up before server.js is required) ----
 const { getDataDir } = require('./lib/paths');
-let logDir;
-try {
-  logDir = path.join(getDataDir(), 'logs');
-  fs.mkdirSync(logDir, { recursive: true });
-} catch (e) {
-  // Data dir unusable (bad MARTPOS_DATA_DIR, permissions, etc.) - fall back
-  // to %TEMP% so logging still works and startup can fail gracefully.
-  try {
-    logDir = path.join(require('os').tmpdir(), 'MartPOS', 'logs');
-    fs.mkdirSync(logDir, { recursive: true });
-  } catch (_) {
-    logDir = null;
-  }
-}
-const logStream = logDir
-  ? fs.createWriteStream(
-    path.join(logDir, `martpos-${new Date().toISOString().slice(0, 10)}.log`),
-    { flags: 'a' }
-  )
-  : null;
-for (const method of ['log', 'info', 'warn', 'error']) {
-  const orig = console[method].bind(console);
-  console[method] = (...args) => {
-    const line = args
-      .map(a => (a instanceof Error ? a.stack : typeof a === 'string' ? a : JSON.stringify(a)))
-      .join(' ');
-    try {
-      if (logStream) {
-        logStream.write(`${new Date().toISOString()} [${method.toUpperCase()}] ${line}\n`);
-      }
-    } catch (_) { /* logging must never crash the app */ }
-    orig(...args);
-  };
-}
+const logDir = require('./lib/logger').installFileLogging();
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
 });

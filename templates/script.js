@@ -20,6 +20,7 @@ const state = {
   users: [],
   drive: {},
   whatsapp: {},
+  about: null,
   payment: "Cash",
   paid: "",
   phone: "",
@@ -63,6 +64,16 @@ function esc(v) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+// "14 Sep 2026, 6:15 PM" - consistent date/time rendering for backup lists.
+function fmtDateTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso || "—");
+  return d.toLocaleString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true
+  });
 }
 
 function can(minRole) {
@@ -1156,14 +1167,19 @@ async function chargeBill(openPdf = false) {
     state.sendWhatsapp = false;
     if (wa && wa.provider && wa.provider !== "none") {
       // WhatsApp was requested - the sale is already saved either way.
+      // With auto-send on, failures stay non-blocking (status line only); the
+      // Sales list still shows ✗ Failed with a retry button. When the cashier
+      // explicitly asked for the send, the retry dialog opens so they can
+      // correct the number right away.
+      const autoSendOn = state.settings.whatsapp_auto_send === "1";
       if (wa.ok && wa.provider === "twilio") {
         setStatus(`Saved ${data.invoice.invoice_no} · sent on WhatsApp`, "ok");
       } else if (wa.provider === "simulated") {
         setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp is not configured, bill was not sent`, "error");
-        whatsappRetryModal(data.invoice);
+        if (!autoSendOn) whatsappRetryModal(data.invoice);
       } else {
-        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp delivery failed`, "error");
-        whatsappRetryModal(data.invoice);
+        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp delivery failed${wa.friendly ? ` (${wa.friendly})` : ""}`, "error");
+        if (!autoSendOn) whatsappRetryModal(data.invoice);
       }
     } else {
       setStatus(`Saved ${data.invoice.invoice_no}`, "ok");
@@ -1200,11 +1216,22 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
     </form>`,
     "waSendForm"
   );
+  const modalSave = document.getElementById("saveModal");
+  if (modalSave) modalSave.textContent = "Send";
   const form = document.getElementById("waSendForm");
+  const attempts = (invoice.whatsapp_attempts || [])
+    .map((a) => `${a.status === "sent" ? "✓" : "✗"} ${fmtDateTime(a.created_at)}${a.error ? ` — ${a.error}` : ""}`)
+    .join("\n");
+  if (attempts) {
+    form.insertAdjacentHTML("beforeend", `<p class="help" style="white-space:pre-line">Recent attempts:\n${esc(attempts)}</p>`);
+  }
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const msg = document.getElementById("waSendMsg");
+    const sendBtn = document.getElementById("saveModal");
     const fd = Object.fromEntries(new FormData(form).entries());
+    // Guard against double-clicks - one in-flight send at a time.
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = "Sending…"; }
     msg.textContent = "Sending…";
     try {
       const r = await api(`/api/invoices/${invoice.id}/whatsapp`, { method: "POST", body: { phone: fd.phone } });
@@ -1212,13 +1239,16 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
       if (w.ok && w.provider === "twilio") {
         closeModal();
         setStatus("Bill sent on WhatsApp", "ok");
+        if (state.view === "sales") loadSales();
       } else if (w.provider === "simulated") {
-        msg.textContent = "WhatsApp is not configured yet (Twilio credentials missing). The shop owner can set it up in Settings → Cloud & communication.";
+        msg.textContent = "WhatsApp is not configured yet (Twilio credentials missing). The shop owner can set it up in Settings → WhatsApp billing.";
       } else {
-        msg.textContent = `Delivery failed: ${w.error || "unknown error"}`;
+        msg.textContent = `Could not send WhatsApp bill. ${w.friendly || w.error || ""}`;
       }
     } catch (err) {
       msg.textContent = err.message;
+    } finally {
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = "Send"; }
     }
   });
 }
@@ -1508,13 +1538,18 @@ function renderSales(view) {
   view.innerHTML = `
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Invoice</th><th>Customer</th><th>Total</th><th>Paid</th><th>Status</th><th>WhatsApp</th><th></th></tr></thead>
         <tbody>
           ${state.invoices
             .map(
               (i) => `<tr>
                 <td>${esc(i.invoice_no)}</td><td>${esc(i.party_name || "Walk-in")}</td>
                 <td>₹ ${money(i.total)}</td><td>₹ ${money(i.paid)}</td><td>${esc(i.status)}</td>
+                <td>${i.whatsapp
+                  ? (i.whatsapp.status === "sent"
+                    ? `<span class="badge badge-paid" title="${esc(fmtDateTime(i.whatsapp.at))}">✓ Sent</span>`
+                    : `<span class="badge badge-unpaid" title="${esc(i.whatsapp.error || "failed")}">✗ Failed</span>`)
+                  : `<span class="muted">—</span>`}</td>
                 <td>
                   <button class="btn ghost sm" data-print="${i.id}">Print</button>
                   ${i.status !== "cancelled" ? `<button class="btn ghost sm" data-wa="${i.id}">WhatsApp</button>` : ""}
@@ -2264,7 +2299,7 @@ function renderSettings(view) {
             <option value="inter" ${s.gst_type === "inter" ? "selected" : ""}>Inter-state (IGST)</option>
           </select>
         </label>
-        <h3 class="full">Cloud &amp; communication</h3>
+        <h3 class="full">WhatsApp billing</h3>
         <label>WhatsApp business number
           <input name="whatsapp_number" type="tel" placeholder="+91 XXXXXXXXXX" value="${esc(s.whatsapp_number || "")}" />
         </label>
@@ -2275,18 +2310,29 @@ function renderSettings(view) {
           <input name="twilio_auth_token" type="password" placeholder="${(state.whatsapp.fields || {}).auth_token ? "Saved — enter to replace" : "Auth token"}" autocomplete="new-password" />
         </label>
         <label>Twilio WhatsApp sender
-          <input name="twilio_whatsapp_from" type="tel" placeholder="${(state.whatsapp.fields || {}).from ? "Saved — enter to replace" : "+14155238886"}" autocomplete="off" />
+          <input name="twilio_whatsapp_from" type="tel" placeholder="${(state.whatsapp.fields || {}).from ? `Saved ${esc(state.whatsapp.sender_masked || "")} — enter to replace` : "+14155238886"}" autocomplete="off" />
         </label>
+        <label class="check"><input type="checkbox" name="whatsapp_auto_send" ${s.whatsapp_auto_send === "1" ? "checked" : ""} /> Automatically send WhatsApp bill after sale</label>
         ${state.whatsapp.configured ? `<label class="check"><input type="checkbox" name="twilio_disconnect" /> Remove saved Twilio credentials</label>` : ""}
         <p class="help full">Twilio credentials are stored encrypted on this PC and are never shown again. Leave a field blank to keep its saved value.</p>
+
+        <h3 class="full">Backups</h3>
         <label class="check"><input type="checkbox" name="drive_auto_backup" ${s.drive_auto_backup === "1" ? "checked" : ""} /> Enable automatic Google Drive backup</label>
-        <label>Backup frequency
+        <label>Google Drive backup frequency
           <select name="drive_backup_interval">
             <option value="6h" ${s.drive_backup_interval === "6h" ? "selected" : ""}>Every 6 hours</option>
             <option value="daily" ${!s.drive_backup_interval || s.drive_backup_interval === "daily" ? "selected" : ""}>Every day</option>
             <option value="on_exit" ${s.drive_backup_interval === "on_exit" ? "selected" : ""}>At application close</option>
           </select>
         </label>
+        <label class="check"><input type="checkbox" name="local_backup_enabled" ${s.local_backup_enabled !== "0" ? "checked" : ""} /> Enable automatic local backup</label>
+        <label>Local backup frequency
+          <select name="local_backup_interval">
+            <option value="6h" ${s.local_backup_interval === "6h" ? "selected" : ""}>Every 6 hours</option>
+            <option value="daily" ${!s.local_backup_interval || s.local_backup_interval === "daily" ? "selected" : ""}>Every day</option>
+          </select>
+        </label>
+        <p class="help full">Local backups are kept in the app data folder (last 30 kept). They protect you even when the internet or Google Drive is unavailable.</p>
 
         <h3 class="full">Receipt printer</h3>
         <label>Paper width
@@ -2336,29 +2382,56 @@ function renderSettings(view) {
         </div>
       </div>
       <div class="card">
-        <h3>Cloud &amp; communication status</h3>
-        <h4>WhatsApp billing</h4>
-        <p><span class="dot ${w.configured ? "on" : "off"}"></span>${w.configured ? "Connected (Twilio)" : "Not connected"}</p>
-        <p class="muted">Business number: ${esc(w.number || "—")}</p>
+        <h3>WhatsApp billing</h3>
+        <p><span class="dot ${w.configured ? "on" : "off"}"></span>${w.configured ? "Connected (Twilio)" : "Not configured"}</p>
+        <p class="muted">Business number: ${esc(w.number || "—")}${w.sender_masked ? ` · Sender: ${esc(w.sender_masked)}` : ""}</p>
+        <p class="muted">Auto-send after sale: ${s.whatsapp_auto_send === "1" ? "On" : "Off (cashier chooses)"}</p>
         <div class="toolbar">
-          <input id="waTestTo" type="tel" placeholder="Test recipient (default: shop number)" style="max-width:230px" />
-          <button class="btn ghost" id="waTest">Test WhatsApp</button>
+          <input id="waTestTo" type="tel" placeholder="Test number (default: shop)" style="max-width:200px" />
+          <button class="btn ghost" id="waTestConn">Test connection</button>
+          <button class="btn ghost" id="waTest">Send test</button>
         </div>
         <div id="waTestMsg" class="help"></div>
-        <h4>Google Drive backup</h4>
+      </div>
+      <div class="card">
+        <h3>Google Drive backup</h3>
         <p><span class="dot ${d.connected ? "on" : "off"}"></span>${d.connected ? `Connected${d.email ? ` · ${esc(d.email)}` : ""}` : "Not connected"}</p>
-        <p class="muted">Folder: ${esc(d.folder || "MartPOS Backups")} · Last backup: ${d.last_backup_at ? esc(new Date(d.last_backup_at).toLocaleString("en-IN")) : "never"}</p>
+        ${d.connected ? `
+        <p class="muted">Last backup: ${d.last_backup_at ? esc(fmtDateTime(d.last_backup_at)) : "never"}${d.last_status === "failed" ? ` <span class="badge badge-unpaid">last attempt failed</span>` : ""}</p>
+        <p class="muted">Next backup: ${d.next_backup_at ? esc(fmtDateTime(d.next_backup_at)) : s.drive_backup_interval === "on_exit" ? "at application close" : "—"}</p>
+        <p class="muted">Frequency: ${esc(({"6h": "Every 6 hours", daily: "Daily", on_exit: "At application close"})[d.backup_interval] || "Daily")} · Folder: ${esc(d.folder || "MartPOS Backups")}</p>` : `
         <p class="help">1. Create a Google Cloud OAuth <b>Desktop</b> client.<br>
         2. Download <code>credentials.json</code> into <code>${esc(d.credentials_path || "")}</code><br>
-        3. Click Connect, sign in, then Backup now. Restore replaces the local database.</p>
-        <p class="muted">Credentials file: ${d.credentials ? "found" : "missing"}</p>
+        3. Click Connect, sign in, then Backup now.</p>
+        <p class="muted">Credentials file: ${d.credentials ? "found" : "missing"}</p>`}
         <div class="toolbar">
-          <button class="btn" id="drvConnect">Connect Google Drive</button>
+          ${d.connected ? `
           <button class="btn green" id="drvBackup">Backup now</button>
-          <button class="btn ghost" id="drvList">List backups</button>
-          ${d.connected ? `<button class="btn ghost" id="drvOff">Disconnect</button>` : ""}
+          <button class="btn ghost" id="drvTest">Test connection</button>
+          <button class="btn ghost" id="drvHistory">Backup history</button>
+          <button class="btn ghost" id="drvOff">Disconnect</button>` : `
+          <button class="btn" id="drvConnect">Connect Google Drive</button>`}
         </div>
-        <div id="drvFiles"></div>
+        <div id="drvMsg" class="help"></div>
+      </div>
+      <div class="card">
+        <h3>Local backup</h3>
+        <p><span class="dot on"></span>Stored in the app data folder on this PC</p>
+        <p class="muted">Last local backup: ${esc(state.about && state.about.last_local_backup_at ? fmtDateTime(state.about.last_local_backup_at) : "never")}</p>
+        <p class="muted">Automatic local backup: ${s.local_backup_enabled !== "0" ? `On (${s.local_backup_interval === "6h" ? "every 6 hours" : "daily"})` : "Off"} · keeps the last 30</p>
+        <div class="toolbar">
+          <button class="btn" id="localBackup">Create backup</button>
+          <button class="btn ghost" id="backupList">Backups &amp; restore</button>
+        </div>
+        <div id="localBackupMsg" class="help"></div>
+      </div>
+      <div class="card">
+        <h3>About</h3>
+        <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
+        <p class="muted">Data folder: <code>${esc((state.about || {}).data_dir || "")}</code></p>
+        <p class="muted">Last cloud backup: ${esc(d.last_backup_at ? fmtDateTime(d.last_backup_at) : "never")}</p>
+      </div>
+      <div class="card">
         <h3>Users</h3>
         <form id="userForm" class="toolbar">
           <input name="username" placeholder="Username" />
@@ -2405,6 +2478,8 @@ function renderSettings(view) {
       fd[`receipt_${k}`] = e.target.querySelector(`[name="receipt_${k}"]`).checked ? "1" : "0";
     }
     fd.drive_auto_backup = e.target.querySelector('[name="drive_auto_backup"]').checked ? "1" : "0";
+    fd.whatsapp_auto_send = e.target.querySelector('[name="whatsapp_auto_send"]').checked ? "1" : "0";
+    fd.local_backup_enabled = e.target.querySelector('[name="local_backup_enabled"]').checked ? "1" : "0";
     const twilioClear = e.target.querySelector('[name="twilio_disconnect"]');
     if (twilioClear && twilioClear.checked) {
       fd.twilio_disconnect = "1";
@@ -2437,7 +2512,7 @@ function renderSettings(view) {
     ReceiptPrinter.print(ReceiptPrinter.sampleInvoice(), receiptCfgFromForm(form));
   });
   refreshReceiptPreview();
-  document.getElementById("drvConnect").addEventListener("click", async () => {
+  document.getElementById("drvConnect")?.addEventListener("click", async () => {
     try {
       setStatus("A browser window will open for Google sign-in...");
       const data = await api("/api/drive/connect", { method: "POST", body: {} });
@@ -2462,40 +2537,67 @@ function renderSettings(view) {
         msg.textContent = `Test message sent to ${to || state.whatsapp.number || "the shop number"}.`;
         setStatus("WhatsApp test sent", "ok");
       } else {
-        msg.textContent = `Test failed: ${res.error || "unknown error"}`;
+        msg.textContent = `Test failed: ${res.friendly || res.error || "unknown error"}`;
       }
     } catch (err) {
       msg.textContent = err.message;
     }
   });
-  document.getElementById("drvBackup").addEventListener("click", async () => {
+  document.getElementById("waTestConn").addEventListener("click", async () => {
+    const msg = document.getElementById("waTestMsg");
+    msg.textContent = "Checking Twilio credentials…";
     try {
-      setStatus("Uploading backup to Google Drive…");
+      const to = document.getElementById("waTestTo").value.trim();
+      const r = await api("/api/whatsapp/test-connection", { method: "POST", body: to ? { to } : {} });
+      if (r.whatsapp) state.whatsapp = r.whatsapp;
+      const res = r.result || {};
+      if (res.ok && res.sent) {
+        msg.textContent = `Credentials valid — test message sent to ${to || state.whatsapp.number || "the shop number"}.`;
+      } else if (res.ok) {
+        msg.textContent = "Twilio credentials are valid.";
+      } else {
+        msg.textContent = res.friendly || res.error || "Credential check failed.";
+      }
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+  document.getElementById("drvBackup")?.addEventListener("click", async () => {
+    const msg = document.getElementById("drvMsg");
+    try {
+      msg.textContent = "Uploading backup to Google Drive…";
       const r = await api("/api/drive/backup", { method: "POST", body: {} });
       if (r.drive) state.drive = r.drive;
+      msg.textContent = `Backup uploaded: ${(r.file || {}).name || "done"}.`;
       setStatus("Backup completed successfully", "ok");
       renderView();
     } catch (err) {
-      setStatus(`Backup could not be uploaded. Your local POS data is safe. (${err.message})`, "error");
+      msg.textContent = `Backup could not be uploaded. Your local POS data is safe. (${err.message})`;
     }
   });
-  document.getElementById("drvList").addEventListener("click", async () => {
-    const data = await api("/api/drive/backups");
-    document.getElementById("drvFiles").innerHTML = (data.files || [])
-      .map(
-        (f) =>
-          `<div class="toolbar"><span>${esc(f.name)} · ${esc(f.createdTime || "")}</span>
-           <button class="btn sm" data-res="${f.id}">Restore</button></div>`
-      )
-      .join("");
-    document.querySelectorAll("[data-res]").forEach((b) =>
-      b.addEventListener("click", async () => {
-        if (!confirm("Replace local database with this backup?")) return;
-        await api("/api/drive/restore", { method: "POST", body: { file_id: b.dataset.res } });
-        location.reload();
-      })
-    );
+  document.getElementById("drvTest")?.addEventListener("click", async () => {
+    const msg = document.getElementById("drvMsg");
+    msg.textContent = "Testing Google Drive connection…";
+    try {
+      const r = await api("/api/drive/test", { method: "POST", body: {} });
+      msg.textContent = `Connected as ${r.result.email || "Google account"} · folder “${r.result.folder}” is ready.`;
+    } catch (err) {
+      msg.textContent = `Connection test failed: ${err.message}`;
+    }
   });
+  document.getElementById("drvHistory")?.addEventListener("click", () => openBackupCenter());
+  document.getElementById("localBackup")?.addEventListener("click", async () => {
+    const msg = document.getElementById("localBackupMsg");
+    msg.textContent = "Creating local backup…";
+    try {
+      const r = await api("/api/backups/local", { method: "POST", body: {} });
+      msg.textContent = `Backup saved: ${r.file.name} (${(r.file.size / 1024).toFixed(0)} KB)`;
+      await loadSettings();
+    } catch (err) {
+      msg.textContent = `Local backup failed: ${err.message}`;
+    }
+  });
+  document.getElementById("backupList")?.addEventListener("click", () => openBackupCenter());
   document.getElementById("drvOff")?.addEventListener("click", async () => {
     if (!confirm("Disconnect Google Drive? Existing backups stay on Drive; automatic backup is turned off.")) return;
     const data = await api("/api/drive/disconnect", { method: "POST", body: {} });
@@ -2531,6 +2633,105 @@ function renderSettings(view) {
     const fd = Object.fromEntries(new FormData(e.target).entries());
     await api(`/api/users/${state.user.id}/password`, { method: "PUT", body: fd });
     setStatus("Password updated", "ok");
+  });
+}
+
+// Backup center modal: local snapshots, Google Drive files and the backup
+// history log, each restorable through the two-step confirm flow.
+async function openBackupCenter() {
+  openModal(`<h3>Backups &amp; restore</h3><div id="bkBody"><p class="help">Loading…</p></div>`, null, "modal-wide");
+  const body = document.getElementById("bkBody");
+  try {
+    const [localRes, histRes, driveRes] = await Promise.all([
+      api("/api/backups/local"),
+      api("/api/backups/history"),
+      state.drive.connected ? api("/api/drive/backups") : Promise.resolve({ files: null })
+    ]);
+    const locals = localRes.backups || [];
+    const history = histRes.history || [];
+    const driveFiles = driveRes.files || [];
+
+    body.innerHTML = `
+      <h4>Local backups</h4>
+      ${locals.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Backup</th><th>Created</th><th>Size</th><th></th></tr></thead>
+        <tbody>${locals.map((b) => `<tr>
+          <td>${esc(b.name)}</td><td>${esc(fmtDateTime(b.created_at))}</td><td>${(b.size / 1024).toFixed(0)} KB</td>
+          <td><button class="btn ghost sm" data-lrestore="${esc(b.name)}">Restore</button></td>
+        </tr>`).join("")}</tbody></table></div>` : `<p class="help">No local backups yet.</p>`}
+      ${state.drive.connected ? `
+      <h4>Google Drive backups</h4>
+      ${driveFiles.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>File</th><th>Created</th><th>Size</th><th></th></tr></thead>
+        <tbody>${driveFiles.map((f) => `<tr>
+          <td>${esc(f.name)}</td><td>${esc(fmtDateTime(f.createdTime))}</td><td>${f.size ? `${(f.size / 1024).toFixed(0)} KB` : "—"}</td>
+          <td>${f.name === "latest.db" ? "" : `<button class="btn ghost sm" data-drestore="${esc(f.id)}">Restore</button>`}</td>
+        </tr>`).join("")}</tbody></table></div>` : `<p class="help">No backups found on Drive.</p>`}` : ""}
+      <h4>History</h4>
+      ${history.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Type</th><th>Location</th><th>Status</th><th>Size</th></tr></thead>
+        <tbody>${history.map((h) => `<tr>
+          <td>${esc(fmtDateTime(h.created_at))}</td>
+          <td>${esc(h.type)}</td>
+          <td>${esc(h.location === "drive" ? "Google Drive" : "Local")}</td>
+          <td>${h.status === "success"
+            ? `<span class="badge badge-paid">Success</span>`
+            : `<span class="badge badge-unpaid" title="${esc(h.error || "")}">Failed</span>`}</td>
+          <td>${h.size ? `${(h.size / 1024).toFixed(0)} KB` : "—"}</td>
+        </tr>`).join("")}</tbody></table></div>` : `<p class="help">No backup history yet.</p>`}
+      <p class="help">Restoring replaces the current data. A safety copy (pre-restore-*.db) is always taken first.</p>`;
+
+    body.querySelectorAll("[data-lrestore]").forEach((b) =>
+      b.addEventListener("click", () => confirmRestore({ source: "local", name: b.dataset.lrestore })));
+    body.querySelectorAll("[data-drestore]").forEach((b) =>
+      b.addEventListener("click", () => confirmRestore({ source: "drive", file_id: b.dataset.drestore })));
+  } catch (err) {
+    body.innerHTML = `<p class="help">Could not load backups: ${esc(err.message)}</p>`;
+  }
+}
+
+// Step 1: validate + show details. Step 2: explicit confirm -> restore.
+async function confirmRestore(sel) {
+  openModal(`<h3>Restore backup</h3><div id="rsBody"><p class="help">Validating backup…</p></div>`, null);
+  const body = document.getElementById("rsBody");
+  let prepared;
+  try {
+    prepared = await api("/api/backup/prepare", { method: "POST", body: sel });
+  } catch (err) {
+    body.innerHTML = `<p class="help">Could not validate this backup: ${esc(err.message)}</p>`;
+    return;
+  }
+  const d = prepared.details || {};
+  body.innerHTML = `
+    <div class="table-wrap"><table><tbody>
+      <tr><td><b>Backup</b></td><td>${esc(d.name || "")}</td></tr>
+      <tr><td><b>Created</b></td><td>${esc(fmtDateTime(d.created_at))}</td></tr>
+      <tr><td><b>Size</b></td><td>${d.size ? `${(d.size / 1024).toFixed(0)} KB` : "—"}</td></tr>
+      <tr><td><b>Invoices</b></td><td>${d.invoices ?? "—"}</td></tr>
+      <tr><td><b>Integrity</b></td><td>${d.ok ? "Verified" : `Failed — ${esc(d.error || "")}`}</td></tr>
+    </tbody></table></div>
+    <p class="help"><b>Restoring will replace the current MartPOS data.</b><br>
+    A safety backup of the current database will be created first. You will be asked to log in again.</p>
+    <div class="toolbar">
+      <button class="btn danger" id="rsGo">Restore</button>
+      <button class="btn ghost" id="rsCancel">Cancel</button>
+    </div>`;
+  document.getElementById("rsCancel").addEventListener("click", () => openBackupCenter());
+  document.getElementById("rsGo").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Restoring…";
+    try {
+      const body = sel.source === "local"
+        ? { source: "local", name: sel.name }
+        : { source: "drive", staging: prepared.staging };
+      await api("/api/backup/restore", { method: "POST", body });
+      setStatus("Database restored — please log in again", "ok");
+      location.reload();
+    } catch (err) {
+      body.querySelector("p.help").innerHTML = `Restore failed: ${esc(err.message)}<br>Your previous data is unchanged.`;
+      e.target.disabled = false;
+      e.target.textContent = "Restore";
+    }
   });
 }
 
@@ -2693,6 +2894,7 @@ async function loadSettings() {
   state.settings = data.settings;
   state.drive = data.drive || {};
   state.whatsapp = data.whatsapp || {};
+  state.about = data.about || null;
   state.users = data.users || [];
   renderView();
 }
@@ -2709,6 +2911,8 @@ async function start() {
   state.whatsapp = me.whatsapp || {};
   if (me.user) {
     state.user = me.user;
+    // Reflect the admin's auto-send preference on the POS checkbox.
+    state.sendWhatsapp = state.settings.whatsapp_auto_send === "1";
     await bootApp();
     if (me.must_change_password && state.user.role === "admin") {
       await switchView("settings");

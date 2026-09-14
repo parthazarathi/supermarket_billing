@@ -4,8 +4,9 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { getResourceDir, getDataDir } = require('./lib/paths');
-const { initDatabase, flushSave, reloadDatabase } = require('./lib/database');
+require('./lib/logger').installFileLogging();
+const { getDataDir } = require('./lib/paths');
+const { initDatabase, flushSave, execToObject, dbInfo } = require('./lib/database');
 const { seedItemsFromJson } = require('./lib/items');
 
 // Import business logic modules
@@ -28,9 +29,11 @@ const reportLib = require('./lib/reports');
 const { dashboard, reports } = reportLib;
 const { generateInvoicePDF } = require('./lib/pdfGenerator');
 const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
-const { formatBillText, sendWhatsAppMessage, sendTestMessage, normalizeWhatsAppNumber, whatsappStatus } = require('./lib/whatsapp');
-const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, restoreDatabase, tryAutoBackup, isBackupDue, DriveError } = require('./lib/driveSync');
+const { sendBill, sendTestMessage, testConnection: testTwilio, normalizeWhatsAppNumber, whatsappStatus, latestStatusMap, attemptsFor } = require('./lib/whatsapp');
+const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, prepareRestore, applyStagedRestore, restoreDatabase, testConnection: testDrive, tryAutoBackup, isBackupDue, DriveError, cleanupStaging } = require('./lib/driveSync');
 const { setSecret } = require('./lib/secrets');
+const { createLocalBackup, isLocalBackupDue, listLocalBackups, describeBackupFile, applyRestoreFile, listHistory, backupDir } = require('./lib/backup');
+const APP_VERSION = require('./package.json').version;
 const { createEstimate, listEstimates, getEstimate, getEstimateByNo, updateEstimate, convertEstimateToInvoice, deleteEstimate } = require('./lib/estimates');
 const { createDeliveryChallan, listDeliveryChallans, getDeliveryChallan, getDeliveryChallanByNo, updateDeliveryChallanStatus, linkChallanToInvoice, deleteDeliveryChallan } = require('./lib/deliveryChallans');
 const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getCreditNote, getDebitNote, updateCreditNoteStatus, updateDebitNoteStatus, deleteCreditNote, deleteDebitNote } = require('./lib/creditDebitNotes');
@@ -207,11 +210,15 @@ function cartPayload(req) {
   return totals;
 }
 
-// Runs a Drive backup only when automatic backup is enabled and the
-// configured interval has elapsed. Failures are logged and never thrown -
-// billing must never be interrupted by a backup problem.
+// Runs scheduled backups when due: a local snapshot is taken even without
+// internet or Google Drive, and a Drive upload happens when connected.
+// Failures are logged and never thrown - billing must never be interrupted.
 async function maybeAutoBackup() {
   try {
+    if (isLocalBackupDue()) {
+      const local = await createLocalBackup('automatic');
+      if (!local.ok) console.error('Local auto-backup failed:', local.error);
+    }
     if (!isBackupDue()) {
       return;
     }
@@ -236,12 +243,19 @@ app.get('/api/me', (req, res) => {
   if (!user) {
     return res.json({ ok: true, user: null, settings: publicSettings() });
   }
+  // Cashiers get cloud status without the local file paths - they need the
+  // connected/not-connected dots for billing, not server internals.
+  const drive = driveStatus();
+  if (user.role !== 'admin') {
+    delete drive.credentials_path;
+    delete drive.token_path;
+  }
   res.json({
     ok: true,
     user: user,
     must_change_password: getSetting('must_change_password', '0') === '1' && user.role === 'admin',
     settings: publicSettings(),
-    drive: driveStatus(),
+    drive,
     whatsapp: whatsappStatus()
   });
 });
@@ -795,16 +809,30 @@ app.post('/api/sale', loginRequired, async (req, res) => {
     const customerName = (req.body.customer_name || '').trim();
     const customerPhone = (req.body.customer_phone || '').trim();
 
-    // Create customer in DB if name or phone is provided
+    // Attach an existing customer when the phone (or name) already exists -
+    // a sale must never fail on a duplicate 'Customer' placeholder.
     if (customerName || customerPhone) {
-      const newParty = saveParty({
-        name: customerName || 'Customer',
-        type: 'customer',
-        phone: customerPhone,
-      });
-      partyId = newParty.id;
-      partyName = customerName || 'Customer';
-      partyPhone = customerPhone;
+      let existing = null;
+      if (customerPhone) {
+        existing = execToObject("SELECT * FROM parties WHERE type = 'customer' AND phone = ?", [customerPhone]);
+      }
+      if (!existing && customerName) {
+        existing = execToObject("SELECT * FROM parties WHERE type = 'customer' AND LOWER(TRIM(name)) = LOWER(?)", [customerName]);
+      }
+      if (existing) {
+        partyId = existing.id;
+        partyName = existing.name;
+        partyPhone = existing.phone || customerPhone;
+      } else {
+        const newParty = saveParty({
+          name: customerName || `Customer ${customerPhone}`,
+          type: 'customer',
+          phone: customerPhone,
+        });
+        partyId = newParty.id;
+        partyName = newParty.name;
+        partyPhone = customerPhone;
+      }
     }
 
     const invoice = completeSale(cart, {
@@ -825,13 +853,15 @@ app.post('/api/sale', loginRequired, async (req, res) => {
     // Auto-backup if enabled
     await maybeAutoBackup();
 
-    // WhatsApp integration - a delivery failure never affects the saved sale
+    // WhatsApp integration - a delivery failure never affects the saved sale.
+    // Sent when the cashier ticked the box OR admin enabled auto-send and the
+    // customer has a number. Missing number never blocks billing.
     let whatsapp = { ok: true, provider: 'none' };
     const whatsappPhone = customerPhone || partyPhone;
-    if (req.body.send_whatsapp && whatsappPhone) {
+    const autoSend = getSetting('whatsapp_auto_send', '0') === '1';
+    if ((req.body.send_whatsapp || autoSend) && whatsappPhone) {
       try {
-        const billText = formatBillText(invoice);
-        whatsapp = await sendWhatsAppMessage(whatsappPhone, billText);
+        whatsapp = await sendBill(invoice, whatsappPhone);
       } catch (error) {
         console.error('WhatsApp error:', error);
         whatsapp = { ok: false, error: error.message, provider: 'whatsapp' };
@@ -872,8 +902,7 @@ app.post('/send_bill', loginRequired, async (req, res) => {
     let result = { ok: true, provider: 'none' };
     if (req.body.phone) {
       try {
-        const billText = formatBillText(invoice);
-        result = await sendWhatsAppMessage(req.body.phone, billText);
+        result = await sendBill(invoice, req.body.phone);
       } catch (error) {
         console.error('WhatsApp error:', error);
         result = { ok: false, error: error.message, provider: 'whatsapp' };
@@ -905,11 +934,10 @@ app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
     if (!phone) {
       return res.status(400).json(jsonError('Customer WhatsApp number is required'));
     }
-    const billText = formatBillText(invoice);
-    const result = await sendWhatsAppMessage(phone, billText);
+    const result = await sendBill(invoice, phone);
     audit(
       req, 'whatsapp', 'sales', invoice.invoice_no,
-      result.ok ? `Bill sent on WhatsApp to ${phone}` : `WhatsApp send failed: ${result.error || 'unknown'}`
+      result.ok ? `Bill sent on WhatsApp to ${phone}` : `WhatsApp send failed: ${result.friendly || result.error || 'unknown'}`
     );
     res.json({ ok: true, whatsapp: result, invoice_no: invoice.invoice_no });
   } catch (error) {
@@ -917,9 +945,15 @@ app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
   }
 });
 
-// Invoices
+// Invoices - each row carries its latest WhatsApp delivery status so the
+// Sales list can show Sent / Failed without extra round-trips.
 app.get('/api/invoices', loginRequired, (req, res) => {
-  res.json({ ok: true, invoices: listInvoices() });
+  const invoices = listInvoices();
+  const wa = latestStatusMap();
+  for (const inv of invoices) {
+    if (wa[inv.id]) inv.whatsapp = wa[inv.id];
+  }
+  res.json({ ok: true, invoices: invoices });
 });
 
 app.get('/api/invoices/:id', loginRequired, (req, res) => {
@@ -927,6 +961,7 @@ app.get('/api/invoices/:id', loginRequired, (req, res) => {
   if (!invoice) {
     return res.status(404).json(jsonError('Invoice not found'));
   }
+  invoice.whatsapp_attempts = attemptsFor(invoice.id);
   res.json({ ok: true, invoice: invoice });
 });
 
@@ -1127,14 +1162,26 @@ app.get('/api/settings', loginRequired, (req, res) => {
     drive: driveStatus(),
     whatsapp: whatsappStatus()
   };
-  
+
   if (user.role === 'admin') {
     payload.users = listUsers();
-    const { getDataDir, getDbPath } = require('./lib/paths');
+    const db = dbInfo();
     payload.data_dir = getDataDir();
-    payload.db_path = getDbPath();
+    payload.db_path = db.path;
+    // Settings -> About card. Paths are admin-only; no secrets included.
+    payload.about = {
+      app: 'MartPOS',
+      version: APP_VERSION,
+      schema_version: db.schema_version,
+      data_dir: getDataDir(),
+      db_path: db.path,
+      db_size: db.size,
+      backup_dir: backupDir(),
+      last_drive_backup_at: (driveStatus() || {}).last_backup_at || '',
+      last_local_backup_at: (listLocalBackups()[0] || {}).created_at || ''
+    };
   }
-  
+
   res.json(payload);
 });
 
@@ -1149,7 +1196,10 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       default_gst: true,
       drive_auto_backup: true,
       drive_backup_interval: true,
+      local_backup_enabled: true,
+      local_backup_interval: true,
       whatsapp_number: true,
+      whatsapp_auto_send: true,
       must_change_password: true,
       receipt_printer_width: true,
       receipt_font_size: true,
@@ -1181,6 +1231,15 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
     if (updates.drive_backup_interval !== undefined &&
         !['6h', 'daily', 'on_exit'].includes(String(updates.drive_backup_interval))) {
       return res.status(400).json(jsonError('Invalid backup frequency'));
+    }
+    if (updates.local_backup_interval !== undefined &&
+        !['6h', 'daily'].includes(String(updates.local_backup_interval))) {
+      return res.status(400).json(jsonError('Invalid local backup frequency'));
+    }
+    for (const flag of ['whatsapp_auto_send', 'local_backup_enabled']) {
+      if (updates[flag] !== undefined && !['0', '1'].includes(String(updates[flag]))) {
+        return res.status(400).json(jsonError('Invalid on/off value'));
+      }
     }
 
     // Twilio credentials go to the encrypted secrets store - never into the
@@ -1489,6 +1548,19 @@ app.post('/api/whatsapp/test', requireRole('admin'), async (req, res) => {
   }
 });
 
+// Credential check only - validates the Twilio account against the API.
+// Pass { to: '<number>' } to also send a test message to that explicit
+// number (defaults to the configured shop number when omitted there).
+app.post('/api/whatsapp/test-connection', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await testTwilio((req.body || {}).to || null);
+    audit(req, 'whatsapp_test', 'settings', '', result.ok ? 'Twilio credentials verified' : `Twilio check failed: ${result.friendly || result.error}`);
+    res.json({ ok: !!result.ok, whatsapp: whatsappStatus(), result });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
 // Google Drive sync routes
 app.get('/api/drive/status', requireRole('admin'), (req, res) => {
   res.json({ ok: true, drive: driveStatus() });
@@ -1512,16 +1584,26 @@ app.post('/api/drive/disconnect', requireRole('admin'), async (req, res) => {
   res.json({ ok: true, drive: driveStatus() });
 });
 
+// Manual "Backup now" under the Drive card - uploads to Google Drive only.
+// Local snapshots have their own endpoint (POST /api/backups/local) and also
+// run automatically on the schedule.
 app.post('/api/drive/backup', requireRole('admin'), async (req, res) => {
   try {
-    const result = await backupDatabase();
+    const result = await backupDatabase('manual');
     res.json({ ok: true, ...result, drive: driveStatus() });
   } catch (error) {
-    if (error instanceof DriveError) {
-      res.status(400).json(jsonError(errMsg(error)));
-    } else {
-      res.status(500).json(jsonError(errMsg(error)));
-    }
+    res.status(error instanceof DriveError ? 400 : 500).json(jsonError(errMsg(error)));
+  }
+});
+
+// Validates the OAuth token and confirms the backup folder is reachable.
+app.post('/api/drive/test', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await testDrive();
+    console.log(`Drive connection test OK (${result.email || 'no email'})`);
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
@@ -1538,20 +1620,103 @@ app.get('/api/drive/backups', requireRole('admin'), async (req, res) => {
   }
 });
 
+// Two-step safe restore:
+//   POST /api/backup/prepare  { source:'local', name } | { source:'drive', file_id }
+//       -> validates the backup and returns details for the confirm screen.
+//       Drive files are downloaded to <data dir>/restores/ and validated.
+//   POST /api/backup/restore  { source:'local', name } | { source:'drive', staging }
+//       -> takes a pre-restore safety backup, swaps pos.db, reloads, and
+//       destroys the session so the UI returns to login.
+// Path components are strictly validated - only files inside the backups/
+// and restores/ directories can ever be referenced.
+const SAFE_BACKUP_NAME = /^(MartPOS-backup|pre-restore)-[\w.-]+\.db$/i;
+const SAFE_STAGING_NAME = /^drive-[\w.-]+\.db$/i;
+
+app.post('/api/backup/prepare', requireRole('admin'), async (req, res) => {
+  try {
+    const source = (req.body || {}).source;
+    if (source === 'local') {
+      const name = String(req.body.name || '');
+      if (!SAFE_BACKUP_NAME.test(name)) {
+        return res.status(400).json(jsonError('Invalid backup name'));
+      }
+      const filePath = path.join(backupDir(), name);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json(jsonError('Backup file not found'));
+      }
+      const details = await describeBackupFile(filePath, name);
+      if (!details.ok) {
+        return res.status(400).json({ ok: false, error: `Backup is not usable: ${details.error}`, details });
+      }
+      return res.json({ ok: true, source: 'local', details });
+    }
+    if (source === 'drive') {
+      const fileId = String(req.body.file_id || '');
+      if (!fileId) {
+        return res.status(400).json(jsonError('file_id is required'));
+      }
+      const details = await prepareRestore(fileId);
+      return res.json({ ok: true, source: 'drive', details, staging: path.basename(details.staging_path) });
+    }
+    res.status(400).json(jsonError('source must be "local" or "drive"'));
+  } catch (error) {
+    res.status(error instanceof DriveError ? 400 : 500).json(jsonError(errMsg(error)));
+  }
+});
+
+app.post('/api/backup/restore', requireRole('admin'), async (req, res) => {
+  try {
+    const source = (req.body || {}).source;
+    let result;
+    if (source === 'local') {
+      const name = String(req.body.name || '');
+      if (!SAFE_BACKUP_NAME.test(name)) {
+        return res.status(400).json(jsonError('Invalid backup name'));
+      }
+      const filePath = path.join(backupDir(), name);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json(jsonError('Backup file not found'));
+      }
+      result = await applyRestoreFile(filePath, name);
+    } else if (source === 'drive') {
+      const staging = String(req.body.staging || '');
+      if (!SAFE_STAGING_NAME.test(staging)) {
+        return res.status(400).json(jsonError('Invalid staged file'));
+      }
+      const stagingPath = path.join(getDataDir(), 'restores', staging);
+      if (!fs.existsSync(stagingPath)) {
+        return res.status(400).json(jsonError('Staged download expired - prepare the restore again'));
+      }
+      result = await applyStagedRestore(stagingPath, staging);
+    } else {
+      return res.status(400).json(jsonError('source must be "local" or "drive"'));
+    }
+
+    if (!result.ok) {
+      return res.status(400).json(jsonError(result.error));
+    }
+
+    // Database was swapped and reloaded inside applyRestoreFile. Drop the
+    // session so the cashier logs in again against the restored data.
+    req.session.destroy();
+    res.json({ ok: true, ...result, note: 'Database restored. Please log in again.' });
+  } catch (error) {
+    res.status(500).json(jsonError(errMsg(error)));
+  }
+});
+
+// One-call restore kept for compatibility - prepares and applies safely.
 app.post('/api/drive/restore', requireRole('admin'), async (req, res) => {
   try {
     const { file_id } = req.body;
     if (!file_id) {
       return res.status(400).json(jsonError('file_id is required'));
     }
-    
     const result = await restoreDatabase(file_id);
-
-    // Swap the restored file in as the live database (initDatabase alone
-    // would early-return with the stale in-memory db)
-    reloadDatabase();
+    if (!result.ok) {
+      return res.status(400).json(jsonError(result.error));
+    }
     req.session.destroy();
-    
     res.json({ ok: true, ...result, note: 'Database restored. Please log in again.' });
   } catch (error) {
     if (error instanceof DriveError) {
@@ -1560,6 +1725,24 @@ app.post('/api/drive/restore', requireRole('admin'), async (req, res) => {
       res.status(500).json(jsonError(errMsg(error)));
     }
   }
+});
+
+// ---- Local backups + history ----
+
+app.get('/api/backups/local', requireRole('admin'), (req, res) => {
+  res.json({ ok: true, backups: listLocalBackups(), dir: backupDir() });
+});
+
+app.post('/api/backups/local', requireRole('admin'), async (req, res) => {
+  const result = await createLocalBackup('manual');
+  if (!result.ok) {
+    return res.status(400).json(jsonError(result.error));
+  }
+  res.json({ ok: true, file: result.file });
+});
+
+app.get('/api/backups/history', requireRole('admin'), (req, res) => {
+  res.json({ ok: true, history: listHistory(200) });
 });
 
 // Estimates
@@ -1889,6 +2072,10 @@ app.post('/api/accounts/:id/transactions', requireRole('manager'), (req, res) =>
   }
 });
 
+app.get('/api/health', requireRole('admin'), (req, res) => {
+  res.json({ ok: true, health: healthReport, about: { version: APP_VERSION, schema_version: dbInfo().schema_version } });
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json(jsonError('Not found'));
@@ -1903,12 +2090,70 @@ app.use((err, req, res, next) => {
   res.status(500).json(jsonError('Internal server error'));
 });
 
+// Startup health check. Local checks (data dir, database, backup dir,
+// assets) are required for the POS to function; cloud services are reported
+// but never block startup - MartPOS must open normally without internet.
+let healthReport = { at: null, checks: [] };
+function runHealthChecks() {
+  const checks = [];
+  const add = (name, ok, detail = '') => {
+    checks.push({ name, ok, detail });
+    (ok ? console.log : console.error)(`Health check: ${name} ${ok ? 'OK' : 'FAILED'}${detail ? ` - ${detail}` : ''}`);
+  };
+
+  // Data directory writable
+  try {
+    const probe = path.join(getDataDir(), `.healthcheck-${process.pid}`);
+    fs.writeFileSync(probe, 'x');
+    fs.unlinkSync(probe);
+    add('data directory writable', true);
+  } catch (e) {
+    add('data directory writable', false, e.message);
+  }
+
+  // Database readable + core tables present
+  try {
+    const missing = ['users', 'settings', 'items', 'invoices', 'invoice_items']
+      .filter((t) => !execToObject("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [t]));
+    add('database readable and tables valid', missing.length === 0, missing.length ? `missing: ${missing.join(', ')}` : '');
+  } catch (e) {
+    add('database readable and tables valid', false, e.message);
+  }
+
+  // Backup directory writable
+  try {
+    const dir = backupDir();
+    const probe = path.join(dir, `.healthcheck-${process.pid}`);
+    fs.writeFileSync(probe, 'x');
+    fs.unlinkSync(probe);
+    add('backup directory writable', true);
+  } catch (e) {
+    add('backup directory writable', false, e.message);
+  }
+
+  // UI assets exist
+  add('UI assets present', fs.existsSync(path.join(__dirname, 'templates', 'index.html')));
+
+  // Cloud services: informational only - never block startup.
+  add('WhatsApp configured', whatsappStatus().configured, 'informational - POS works without it');
+  add('Google Drive connected', driveStatus().connected, 'informational - POS works without it');
+
+  healthReport = { at: new Date().toISOString(), checks };
+  const failed = checks.filter((c) => !c.ok && !/configured|connected/.test(c.name));
+  if (failed.length) {
+    console.error(`Startup health: ${failed.length} required check(s) failed`);
+  }
+  return healthReport;
+}
+
 // Initialize and start server
 async function startServer() {
   try {
     await initDatabase();
+    cleanupStaging();
     seedItemsFromJson();
-    
+    runHealthChecks();
+
     const openBrowser = (port) => {
       if (!process.pkg) {
         return;
