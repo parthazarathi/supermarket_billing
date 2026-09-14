@@ -33,6 +33,20 @@ You can also run the desktop window without building:
 npm run desktop
 ```
 
+## Windows installer
+
+```powershell
+npm run build:installer
+```
+
+Produces `dist\MartPOS-Setup-<version>.exe` (Inno Setup via `innosetup-compiler` — no separate install needed). The installer:
+
+- Installs per-user under `%LOCALAPPDATA%\Programs\MartPOS` — **no admin rights required**
+- Adds a Start Menu entry (+ optional desktop shortcut) and a proper uninstaller
+- Never touches shop data in `%LOCALAPPDATA%\MartPOS\`, so reinstalls/uninstalls keep invoices
+
+On a fresh PC: run the setup, launch MartPOS, log in with `admin` / `admin`. To carry over an existing shop's data, copy `data\pos.db` into `%LOCALAPPDATA%\MartPOS\pos.db` or use Google Drive backup/restore.
+
 ## What you get
 
 - **POS:** barcode / search / product tiles, cart, GST (CGST+SGST or IGST), Cash / UPI / Card, hold bill, PDF invoice, optional WhatsApp

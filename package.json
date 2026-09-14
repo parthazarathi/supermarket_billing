@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Vyapar-style billing application - migrated from Python to Node.js",
   "main": "server.js",
+  "bin": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "desktop": "node desktop.js",
     "build": "pkg . --targets node18-win-x64 --output dist/MartPOS.exe",
+    "build:installer": "npm run build && node build-installer.js",
     "lint": "eslint ."
   },
   "keywords": [
@@ -34,6 +36,18 @@
   },
   "devDependencies": {
     "eslint": "^8.57.1",
+    "innosetup-compiler": "^6.3.1",
     "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [
+      "templates/**/*",
+      "data/products.json",
+      "node_modules/sql.js/dist/sql-wasm.wasm",
+      "node_modules/pdfkit/js/data/**/*"
+    ],
+    "scripts": [
+      "node_modules/es-get-iterator/**/*.js"
+    ]
   }
 }

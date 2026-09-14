@@ -1806,9 +1806,33 @@ async function startServer() {
     await initDatabase();
     seedItemsFromJson();
     
-    app.listen(PORT, () => {
-      console.log(`Mart POS server running on http://localhost:${PORT}`);
+    const openBrowser = (port) => {
+      if (!process.pkg) {
+        return;
+      }
+      try {
+        require('open')(`http://127.0.0.1:${port}/`);
+      } catch (_) {
+        console.log(`Open http://127.0.0.1:${port}/ in your browser`);
+      }
+    };
+
+    const server = app.listen(PORT, () => {
+      const port = server.address().port;
+      console.log(`Mart POS server running on http://localhost:${port}`);
       console.log('Default login: admin / admin');
+      openBrowser(port);
+    });
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        const fallback = app.listen(0, () => {
+          const port = fallback.address().port;
+          console.log(`Port ${PORT} busy - Mart POS running on http://localhost:${port}`);
+          openBrowser(port);
+        });
+      } else {
+        throw err;
+      }
     });
 
     const shutdown = () => {
