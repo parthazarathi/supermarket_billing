@@ -72,6 +72,8 @@ function esc(v) {
     .replaceAll('"', "&quot;");
 }
 
+const PRODUCT_CSV_FIELDS = ['code', 'name', 'category', 'hsn', 'gst_percent', 'purchase_price', 'mrp', 'sale_price', 'stock', 'unit', 'low_stock'];
+
 // "14 Sep 2026, 6:15 PM" - consistent date/time rendering for backup lists.
 function fmtDateTime(iso) {
   const d = new Date(iso);
@@ -1338,11 +1340,131 @@ async function recallHeld() {
   applyCart(await api(`/api/cart/recall/${choice}`, { method: "POST", body: {} }));
 }
 
+function csvValue(value) {
+  let v = value === undefined || value === null ? "" : String(value);
+  if (/^[=+\-@]/.test(v)) v = `'${v}`;
+  return `"${v.replaceAll('"', '""')}"`;
+}
+
+function parseProductCsv(text) {
+  const src = String(text || "").replace(/^﻿/, "");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"' && field === "") {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ",") {
+      row.push(field);
+      field = "";
+      continue;
+    }
+    if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && src[i + 1] === "\n") i += 1;
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+      continue;
+    }
+    field += ch;
+  }
+  if (inQuotes) throw new Error("CSV file has an unterminated quoted value");
+  row.push(field);
+  rows.push(row);
+
+  const dataRows = rows.filter((r) => r.some((cell) => String(cell).trim() !== ""));
+  if (dataRows.length === 0) return [];
+  const headers = dataRows[0].map((h) => String(h).trim().toLowerCase().replace(/\s+/g, "_"));
+  const seen = new Set();
+  headers.forEach((h) => {
+    if (h && seen.has(h)) throw new Error(`Duplicate column in CSV: ${h}`);
+    seen.add(h);
+  });
+  if (!headers.includes("code") || !headers.includes("name")) {
+    throw new Error("CSV must include code and name columns");
+  }
+  const textFields = new Set(["code", "name", "category", "hsn", "unit"]);
+  return dataRows.slice(1).map((r) => {
+    const obj = {};
+    headers.forEach((h, idx) => {
+      if (!h || !PRODUCT_CSV_FIELDS.includes(h)) return;
+      let v = String(r[idx] ?? "").trim();
+      if (textFields.has(h) && /^'[=+\-@]/.test(v)) v = v.slice(1);
+      obj[h] = v;
+    });
+    return obj;
+  });
+}
+
+async function exportProductsCsv() {
+  try {
+    const res = await api("/api/items");
+    const products = res.items || [];
+    const lines = [PRODUCT_CSV_FIELDS.map(csvValue).join(",")];
+    products.forEach((p) => {
+      lines.push(PRODUCT_CSV_FIELDS.map((f) => csvValue(p[f])).join(","));
+    });
+    const blob = new Blob([`﻿${lines.join("\r\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    a.href = url;
+    a.download = `MartPOS-products-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus(`Exported ${products.length} products`, "ok");
+  } catch (err) {
+    setStatus(err.message || "Export failed", "error");
+  }
+}
+
+async function importProductsCsv(file) {
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error("CSV file must be 5 MB or smaller");
+    const text = await file.text();
+    const rows = parseProductCsv(text);
+    if (rows.length === 0) throw new Error("CSV file does not contain any products");
+    if (!confirm(`Import ${rows.length} products? Existing barcodes will be updated, including their stock values.`)) return;
+    const result = await api("/api/items/import", { method: "POST", body: { items: rows } });
+    await loadItems(false);
+    if (state.view === "items") renderView();
+    setStatus(`Imported ${result.created} new and updated ${result.updated} existing products`, "ok");
+  } catch (err) {
+    setStatus(err.message || "Import failed", "error");
+  }
+}
+
 function renderItems(view) {
   view.innerHTML = `
     ${
       can("manager")
-        ? `<div class="toolbar"><button class="btn" id="newItem">Add item</button></div>`
+        ? `<div class="toolbar">
+  <button class="btn" id="newItem">Add item</button>
+  <button class="btn ghost" id="importItems">Import CSV</button>
+  <button class="btn ghost" id="exportItems">Export CSV</button>
+  <input id="itemsCsvFile" type="file" accept=".csv,text/csv" hidden />
+</div>`
         : ""
     }
     <div class="card table-wrap">
@@ -1378,6 +1500,22 @@ function renderItems(view) {
       </table>
     </div>`;
   document.getElementById("newItem")?.addEventListener("click", () => itemForm());
+  document.getElementById("exportItems")?.addEventListener("click", () => exportProductsCsv());
+  document.getElementById("importItems")?.addEventListener("click", () => {
+    const input = document.getElementById("itemsCsvFile");
+    if (input) {
+      input.value = "";
+      input.click();
+    }
+  });
+  document.getElementById("itemsCsvFile")?.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    try {
+      if (file) await importProductsCsv(file);
+    } finally {
+      e.target.value = "";
+    }
+  });
   view.querySelectorAll("[data-menu]").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();

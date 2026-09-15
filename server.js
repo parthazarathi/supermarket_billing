@@ -12,7 +12,7 @@ const { seedItemsFromJson } = require('./lib/items');
 // Import business logic modules
 const { authenticate, listUsers, createUser, updateUserPassword, deleteUser, getUserById } = require('./lib/users');
 const { getSetting, getSettings, setSettings } = require('./lib/settings');
-const { listItems, getItemByCode, getItem, categories, saveItem, deleteItem } = require('./lib/items');
+const { listItems, getItemByCode, getItem, categories, saveItem, importItems, deleteItem } = require('./lib/items');
 const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCreditLimit } = require('./lib/parties');
 const { calculateCartTotals } = require('./lib/cart');
 const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice, updateInvoice, deleteInvoice } = require('./lib/invoices');
@@ -50,7 +50,7 @@ app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP for development (enable in production)
   crossOriginEmbedderPolicy: false
 }));
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 function resolveSessionSecret() {
   if (process.env.SESSION_SECRET) {
@@ -399,6 +399,16 @@ app.get('/api/items', loginRequired, (req, res) => {
     items: listItems(search, category),
     categories: categories()
   });
+});
+
+app.post('/api/items/import', requireRole('manager'), (req, res) => {
+  try {
+    const result = importItems(req.body.items);
+    audit(req, 'import', 'items', String(result.total), `Imported ${result.total} products`, null, result);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
 });
 
 app.post('/api/items', requireRole('manager'), (req, res) => {

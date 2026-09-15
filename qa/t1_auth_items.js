@@ -207,6 +207,50 @@ const { Client, check, record, summary } = H;
   r = await admin.get('/api/items?q=%25');
   record('TC-ITEM-018c', 'items', 'search "%" wildcard not escaped -> returns all items', 'escape LIKE wildcards', r.json.items.length, 'info');
 
+  l = await admin.get('/api/items?q=TEST-IMPORT');
+  for (const stale of (l.json?.items || [])) {
+    await admin.del(`/api/items/${stale.id}`);
+  }
+  r = await cashier.post('/api/items/import', { items: [{ code: 'TEST-IMPORT-C1', name: 'TEST Import Cashier', purchase_price: 10, sale_price: 12, stock: 1 }] });
+  check('TC-ITEM-IMPORT-001', 'items', 'cashier CSV import -> 403', 403, r.status);
+  r = await admin.post('/api/items/import', {
+    items: [
+      { code: 'TEST-IMPORT-A', name: 'TEST Import A', category: 'TEST-Import', purchase_price: 10, sale_price: 12, mrp: 14, gst_percent: 5, stock: 7, unit: 'pcs' },
+      { code: 'TEST-IMPORT-B', name: 'TEST Import B', category: 'TEST-Import', purchase_price: 20, sale_price: 25, mrp: 28, gst_percent: 12, stock: 9, unit: 'pcs' },
+    ],
+  });
+  check('TC-ITEM-IMPORT-002', 'items', 'admin import creates 2 products', { status: 200, total: 2, created: 2, updated: 0 }, { status: r.status, total: r.json?.total, created: r.json?.created, updated: r.json?.updated }, r.text.slice(0, 200));
+  r = await admin.post('/api/items/import', {
+    items: [
+      { code: 'TEST-IMPORT-A', name: 'TEST Import A v2', category: 'TEST-Import', purchase_price: 11, sale_price: 13, mrp: 15, gst_percent: 5, stock: 33, unit: 'pcs' },
+    ],
+  });
+  check('TC-ITEM-IMPORT-003', 'items', 'reimport same barcode updates existing', { status: 200, total: 1, created: 0, updated: 1 }, { status: r.status, total: r.json?.total, created: r.json?.created, updated: r.json?.updated }, r.text.slice(0, 200));
+  l = await admin.get('/api/items?q=TEST-IMPORT-A');
+  const impA = (l.json?.items || []).find(i => i.code === 'TEST-IMPORT-A');
+  check('TC-ITEM-IMPORT-004', 'items', 'updated item reflects imported name and stock', { name: 'TEST Import A v2', stock: 33 }, { name: impA?.name, stock: impA?.stock }, l.text.slice(0, 200));
+  r = await admin.post('/api/items/import', {
+    items: [
+      { code: 'TEST-IMPORT-ROLLBACK', name: 'TEST Import Rollback', purchase_price: 10, sale_price: 12, stock: 5 },
+      { code: 'TEST-IMPORT-ROLLBACK', name: 'TEST Import Rollback Dup', purchase_price: 10, sale_price: 12, stock: 6 },
+    ],
+  });
+  check('TC-ITEM-IMPORT-005', 'items', 'duplicate barcode inside import -> 400', 400, r.status, r.text.slice(0, 200));
+  l = await admin.get('/api/items?q=TEST-IMPORT-ROLLBACK');
+  check('TC-ITEM-IMPORT-006', 'items', 'failed import rolls back atomically', false, (l.json?.items || []).some(i => i.code === 'TEST-IMPORT-ROLLBACK'), l.text.slice(0, 200));
+  r = await admin.post('/api/items/import', { items: [] });
+  check('TC-ITEM-IMPORT-007', 'items', 'empty items array -> 400', 400, r.status, r.text.slice(0, 150));
+  r = await admin.post('/api/items/import', {});
+  check('TC-ITEM-IMPORT-008', 'items', 'missing items body -> 400', 400, r.status, r.text.slice(0, 150));
+  r = await admin.post('/api/items/import', { items: [{ code: 'TEST-IMPORT-BAD', name: '' }] });
+  check('TC-ITEM-IMPORT-009', 'items', 'row missing required fields -> 400', 400, r.status, r.text.slice(0, 150));
+  l = await admin.get('/api/items?q=TEST-IMPORT');
+  for (const it of (l.json?.items || [])) {
+    await admin.del(`/api/items/${it.id}`);
+  }
+  l = await admin.get('/api/items?q=TEST-IMPORT');
+  check('TC-ITEM-IMPORT-010', 'items', 'import test products cleaned up', 0, (l.json?.items || []).filter(i => i.code.startsWith('TEST-IMPORT')).length);
+
   // Delete item used in transactions
   r = await admin.del(`/api/items/${so.id}`);
   check('TC-ITEM-017', 'items', 'delete item that has invoice lines is blocked (no orphans)', 400, r.status, 'item had a sale; deletion refused to protect invoice history');
