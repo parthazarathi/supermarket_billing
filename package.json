@@ -8,10 +8,13 @@
     "start": "node server.js",
     "dev": "node server.js",
     "desktop": "electron .",
-    "build": "electron-builder --win nsis portable",
-    "build:server-exe": "pkg . --targets node18-win-x64 --output dist/MartPOS-Server.exe",
+    "build": "npm run build:platform-config && electron-builder --win nsis portable",
+    "build:server-exe": "npm run build:platform-config && pkg . --targets node18-win-x64 --output dist/MartPOS-Server.exe",
+    "build:platform-config": "node build-platform-config.js",
     "build:server-installer": "npm run build:server-exe && node build-installer.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "gateway:start": "node gateway/src/index.js",
+    "test:whatsapp": "node qa/whatsapp_meta_unit.js"
   },
   "keywords": [
     "pos",
@@ -31,8 +34,7 @@
     "open": "^8.4.2",
     "pdfkit": "^0.13.0",
     "qrcode": "^1.5.3",
-    "sql.js": "^1.10.3",
-    "twilio": "^4.19.0"
+    "sql.js": "^1.10.3"
   },
   "devDependencies": {
     "electron": "^44.3.0",
@@ -57,6 +59,7 @@
       "templates/**/*",
       "data/products.json",
       "build/icon.png",
+      "generated/platform-config.json",
       "package.json"
     ],
     "electronFuses": {
@@ -95,6 +98,7 @@
     "assets": [
       "templates/**/*",
       "data/products.json",
+      "generated/platform-config.json",
       "node_modules/sql.js/dist/sql-wasm.wasm",
       "node_modules/pdfkit/js/data/**/*"
     ],

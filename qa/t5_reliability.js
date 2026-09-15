@@ -1,4 +1,4 @@
-// Reliability tests: WhatsApp attempt log/statuses, auto-send, local
+// Reliability tests: WhatsApp queue semantics/statuses, auto-send, local
 // backups, backup history, staged restore flow, drive test endpoint,
 // health check, and role gating on the new endpoints.
 // Expects the app running at QA_BASE with MARTPOS_DATA_DIR pointing at a
@@ -28,31 +28,30 @@ const BKU = path.join(DATA_DIR, 'backups');
     const inv = r.json?.invoice;
     check('TC5-WA-001', 'whatsapp', 'sale completes with WhatsApp requested', true, r.json?.ok === true && !!inv?.invoice_no, r.text.slice(0, 200));
 
-    // Attempt recorded in whatsapp_log
-    const d1 = await H.db();
-    const waRows = H.rows(d1, 'SELECT * FROM whatsapp_log WHERE invoice_id = ?', [inv.id]);
-    check('TC5-WA-002', 'whatsapp', 'send attempt logged with invoice+phone+status', true,
-      waRows.length > 0 && waRows[0].phone === '+919876511111' && ['sent', 'failed'].includes(waRows[0].status),
-      JSON.stringify(waRows[0]));
+    // Unlinked device: send reports meta provider + not queued; sale preserved
+    check('TC5-WA-002', 'whatsapp', 'unlinked send reports meta + not queued', true,
+      r.json?.whatsapp?.provider === 'meta' && r.json?.whatsapp?.ok === false, JSON.stringify(r.json?.whatsapp));
 
-    // Invoice list carries latest status
+    // No message exists, so the invoice list carries no whatsapp status
     r = await admin.get('/api/invoices');
     const row = (r.json?.invoices || []).find((i) => i.id === inv.id);
-    check('TC5-WA-003', 'whatsapp', 'invoice list carries whatsapp status', true, !!row && !!row.whatsapp && typeof row.whatsapp.status === 'string', JSON.stringify(row && row.whatsapp));
+    check('TC5-WA-003', 'whatsapp', 'invoice list present, whatsapp field safe/absent', true,
+      !!row && (row.whatsapp === undefined || typeof row.whatsapp.status === 'string'), JSON.stringify(row && row.whatsapp));
 
-    // Invoice detail carries attempt history
+    // Invoice detail always carries an attempts array
     r = await admin.get(`/api/invoices/${inv.id}`);
-    check('TC5-WA-004', 'whatsapp', 'invoice detail carries attempt history', true, (r.json?.invoice?.whatsapp_attempts || []).length > 0);
+    check('TC5-WA-004', 'whatsapp', 'invoice detail carries attempt array', true, Array.isArray(r.json?.invoice?.whatsapp_attempts));
 
     // Retry resends the SAME invoice (no duplicate sale)
+    const d1 = await H.db();
     const invCount = H.rows(d1, 'SELECT COUNT(*) c FROM invoices')[0].c;
     r = await admin.post(`/api/invoices/${inv.id}/whatsapp`, { phone: '+919876522222' });
     check('TC5-WA-005', 'whatsapp', 'retry endpoint responds', 200, r.status);
     const d2 = await H.db();
     const invCount2 = H.rows(d2, 'SELECT COUNT(*) c FROM invoices')[0].c;
     check('TC5-WA-006', 'whatsapp', 'retry does not create a duplicate sale', invCount, invCount2);
-    const waRows2 = H.rows(d2, 'SELECT * FROM whatsapp_log WHERE invoice_id = ? ORDER BY id', [inv.id]);
-    check('TC5-WA-007', 'whatsapp', 'retry increments retry_count', true, waRows2.length >= 2 && waRows2[waRows2.length - 1].retry_count === 1, JSON.stringify(waRows2.map((x) => x.retry_count)));
+    check('TC5-WA-007', 'whatsapp', 'retry while unlinked reports meta + not queued', true,
+      r.json?.whatsapp?.provider === 'meta' && r.json?.whatsapp?.ok === false, JSON.stringify(r.json?.whatsapp));
   }
 
   // ---------- AUTO-SEND SETTING ----------
@@ -62,13 +61,12 @@ const BKU = path.join(DATA_DIR, 'backups');
   check('TC5-WA-011', 'whatsapp', 'auto-send setting saved', '1', r.json?.settings?.whatsapp_auto_send);
   if (item) {
     await admin.post('/add_to_cart', { code: item.code, quantity: 1 });
-    // send_whatsapp NOT passed - auto-send should still attempt delivery
+    // send_whatsapp NOT passed - auto-send still attempts delivery (queued
+    // locally; the gateway link is absent in QA so it reports not-ok)
     r = await admin.post('/api/sale', { payment_method: 'Cash', paid: '9999', customer_phone: '9876500003' });
-    const inv2 = r.json?.invoice;
-    check('TC5-WA-012', 'whatsapp', 'auto-send triggers without checkbox', true, (r.json?.whatsapp?.provider === 'simulated' || r.json?.whatsapp?.provider === 'twilio'), JSON.stringify(r.json?.whatsapp));
-    const d3 = await H.db();
-    const autoRow = H.rows(d3, 'SELECT * FROM whatsapp_log WHERE invoice_id = ?', [inv2.id]);
-    check('TC5-WA-013', 'whatsapp', 'auto-send attempt recorded', true, autoRow.length > 0);
+    check('TC5-WA-012', 'whatsapp', 'auto-send triggers without checkbox', true, r.json?.whatsapp?.provider === 'meta', JSON.stringify(r.json?.whatsapp));
+    check('TC5-WA-013', 'whatsapp', 'auto-send result never blocks the sale', true,
+      r.json?.ok === true && !!r.json?.invoice?.invoice_no, JSON.stringify(r.json?.whatsapp));
 
     // Missing phone: sale completes, nothing attempted
     await admin.post('/add_to_cart', { code: item.code, quantity: 1 });
@@ -96,12 +94,12 @@ const BKU = path.join(DATA_DIR, 'backups');
     record('TC5-WA-020', 'whatsapp', 'bill text unit checks', 'formatted', e.message, 'fail');
   }
 
-  // ---------- SECRET MASKING ----------
-  r = await admin.post('/api/settings', { twilio_whatsapp_from: '+14155238886' });
+  // ---------- STATUS SAFETY ----------
   r = await admin.get('/api/whatsapp/status');
-  check('TC5-SEC-001', 'security', 'sender shown masked, never in full', '+1415***886', r.json?.whatsapp?.sender_masked, JSON.stringify(r.json?.whatsapp));
-  check('TC5-SEC-002', 'security', 'status never leaks full sender', false, JSON.stringify(r.json).includes('+14155238886'));
-  await admin.post('/api/settings', { twilio_disconnect: '1' });
+  check('TC5-SEC-001', 'security', 'whatsapp status is safe-shaped', true,
+    r.json?.whatsapp?.provider === 'meta' && r.json?.whatsapp?.linked === false, JSON.stringify(r.json?.whatsapp));
+  check('TC5-SEC-002', 'security', 'status never leaks tokens or Meta ids', false,
+    /deviceToken|access_token|waba|phone_number_id|graph\.facebook/i.test(JSON.stringify(r.json)));
 
   // ---------- LOCAL BACKUP ----------
   r = await admin.post('/api/backups/local', {});
@@ -183,8 +181,8 @@ const BKU = path.join(DATA_DIR, 'backups');
   check('TC5-ROLE-003', 'auth', 'cashier cannot restore', 403, r.status);
   r = await cashier.post('/api/drive/test', {});
   check('TC5-ROLE-004', 'auth', 'cashier cannot test drive connection', 403, r.status);
-  r = await cashier.post('/api/whatsapp/test-connection', {});
-  check('TC5-ROLE-005', 'auth', 'cashier cannot test whatsapp connection', 403, r.status);
+  r = await cashier.post('/api/whatsapp/connect', {});
+  check('TC5-ROLE-005', 'auth', 'cashier cannot start whatsapp connect', 403, r.status);
   r = await cashier.get('/api/health');
   check('TC5-ROLE-006', 'auth', 'cashier cannot read health report', 403, r.status);
   r = await cashier.get('/api/me');

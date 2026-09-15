@@ -1,7 +1,8 @@
-// Cloud & communication tests: WhatsApp config/validation/sending and
+// Cloud & communication tests: WhatsApp config/validation/queueing and
 // Google Drive status/backup endpoints. Expects the app running at QA_BASE
-// with MARTPOS_DATA_DIR pointing at a scratch dir (no real Twilio/Drive
-// credentials - sends are simulated, Drive stays disconnected).
+// with MARTPOS_DATA_DIR pointing at a scratch dir (no real gateway link -
+// sends report the meta provider but stay unqueued, Drive stays
+// disconnected).
 const H = require('./harness');
 const { Client, check, record, summary } = H;
 
@@ -27,27 +28,24 @@ const { Client, check, record, summary } = H;
   check('TC-WA-004', 'whatsapp', 'bare 10-digit Indian number gets +91', '+919876543210', r.json?.settings?.whatsapp_number);
 
   // ---------- SECRET HANDLING ----------
-  r = await admin.post('/api/settings', {
-    twilio_account_sid: 'ACtestsid123',
-    twilio_auth_token: 'SECRET-TOKEN-XYZ',
-    twilio_whatsapp_from: '+14155238886'
-  });
-  check('TC-WA-010', 'whatsapp', 'Twilio credentials accepted', true, r.json?.ok === true);
-  check('TC-WA-011', 'whatsapp', 'credentials not echoed in response', false, JSON.stringify(r.json).includes('SECRET-TOKEN-XYZ'));
-  check('TC-WA-012', 'whatsapp', 'configured flag true after saving creds', true, r.json?.whatsapp?.configured === true, JSON.stringify(r.json?.whatsapp));
+  // Device tokens are issued only by the gateway - a secret-shaped key posted
+  // to settings must be ignored and never echoed.
+  r = await admin.post('/api/settings', { device_token: 'SECRET-TOKEN-XYZ' });
+  check('TC-WA-010', 'whatsapp', 'secret-shaped settings key ignored', true, r.json?.ok === true);
+  check('TC-WA-011', 'whatsapp', 'secret value not echoed in response', false, JSON.stringify(r.json).includes('SECRET-TOKEN-XYZ'));
 
   r = await admin.get('/api/settings');
-  check('TC-WA-013', 'whatsapp', 'GET /api/settings never exposes secrets', false, JSON.stringify(r.json).includes('SECRET-TOKEN-XYZ') || JSON.stringify(r.json).includes('ACtestsid123'));
-  check('TC-WA-014', 'whatsapp', 'whatsapp status present in settings payload', true, r.json?.whatsapp?.configured === true && r.json?.whatsapp?.number === '+919876543210');
-
-  // Clear creds again so later sends are deterministic (simulated)
-  r = await admin.post('/api/settings', { twilio_disconnect: '1' });
-  check('TC-WA-015', 'whatsapp', 'twilio_disconnect clears credentials', false, r.json?.whatsapp?.configured === true);
+  check('TC-WA-013', 'whatsapp', 'GET /api/settings never exposes secrets', false, JSON.stringify(r.json).includes('SECRET-TOKEN-XYZ'));
+  check('TC-WA-014', 'whatsapp', 'whatsapp status present in settings payload', true,
+    r.json?.whatsapp?.provider === 'meta' && r.json?.whatsapp?.number === '+919876543210', JSON.stringify(r.json?.whatsapp));
+  check('TC-WA-015', 'whatsapp', 'unlinked device is not connected', true,
+    r.json?.whatsapp?.linked === false && r.json?.whatsapp?.configured === false, JSON.stringify(r.json?.whatsapp));
 
   // ---------- WHATSAPP TEST MESSAGE ----------
   r = await admin.post('/api/whatsapp/test', {});
-  check('TC-WA-020', 'whatsapp', 'test message endpoint responds', 200, r.status, r.text.slice(0, 200));
-  check('TC-WA-021', 'whatsapp', 'test send simulated without creds', 'simulated', r.json?.result?.provider, r.text.slice(0, 200));
+  check('TC-WA-020', 'whatsapp', 'test endpoint responds', 200, r.status, r.text.slice(0, 200));
+  check('TC-WA-021', 'whatsapp', 'test bill cannot queue while unlinked', false, r.json?.result?.ok === true, r.text.slice(0, 200));
+  check('TC-WA-021b', 'whatsapp', 'test result uses meta provider', 'meta', r.json?.result?.provider, r.text.slice(0, 200));
 
   r = await admin.post('/api/whatsapp/test', { to: 'bad' });
   check('TC-WA-022', 'whatsapp', 'test to invalid recipient reports failure', false, r.json?.result?.ok === true, r.text.slice(0, 200));
@@ -68,18 +66,21 @@ const { Client, check, record, summary } = H;
 
     r = await admin.post('/add_to_cart', { code: item.code, quantity: 1 });
     r = await admin.post('/api/sale', { payment_method: 'Cash', paid: '9999', phone: '+91 98765 00000', send_whatsapp: true });
-    check('TC-SALE-012', 'sale', 'sale + simulated WhatsApp send', 'simulated', r.json?.whatsapp?.provider, r.text.slice(0, 200));
+    check('TC-SALE-012', 'sale', 'sale saved; WhatsApp reports meta provider', 'meta', r.json?.whatsapp?.provider, r.text.slice(0, 200));
+    check('TC-SALE-012b', 'sale', 'unlinked send is not ok but never fails the sale', true,
+      r.json?.ok === true && r.json?.whatsapp?.ok === false, JSON.stringify(r.json?.whatsapp));
     const inv = r.json?.invoice;
 
     // Retry/resend on a saved invoice
     r = await admin.post(`/api/invoices/${inv.id}/whatsapp`, { phone: '+919876500001' });
-    check('TC-SALE-013', 'sale', 'resend bill on WhatsApp (simulated)', 'simulated', r.json?.whatsapp?.provider, r.text.slice(0, 200));
+    check('TC-SALE-013', 'sale', 'resend responds with meta provider', 'meta', r.json?.whatsapp?.provider, r.text.slice(0, 200));
 
     r = await admin.post(`/api/invoices/${badPhoneInvoice.id}/whatsapp`, { phone: 'xx' });
     check('TC-SALE-014', 'sale', 'resend with bad number fails gracefully, invoice intact', true, r.status === 200 && r.json?.ok === true && r.json?.whatsapp?.ok === false, r.text.slice(0, 200));
 
     r = await admin.post(`/api/invoices/${badPhoneInvoice.id}/whatsapp`, {});
-    check('TC-SALE-015', 'sale', 'resend uses saved party phone (bad -> graceful fail)', true, r.json?.ok === true && r.json?.whatsapp?.ok === false, r.text.slice(0, 200));
+    check('TC-SALE-015', 'sale', 'resend without usable number fails gracefully', true,
+      r.status === 400 || (r.json?.ok === true && r.json?.whatsapp?.ok === false), r.text.slice(0, 200));
 
     r = await admin.post('/api/invoices/999999/whatsapp', { phone: '+919876543210' });
     check('TC-SALE-016', 'sale', 'resend on missing invoice -> 404', 404, r.status);

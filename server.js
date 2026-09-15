@@ -29,9 +29,9 @@ const reportLib = require('./lib/reports');
 const { dashboard, reports } = reportLib;
 const { generateInvoicePDF } = require('./lib/pdfGenerator');
 const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
-const { sendBill, sendTestMessage, testConnection: testTwilio, normalizeWhatsAppNumber, whatsappStatus, latestStatusMap, attemptsFor } = require('./lib/whatsapp');
+const { sendBill, sendTestMessage, retryBill, normalizeWhatsAppNumber, whatsappStatus, latestStatusMap, attemptsFor, friendlyError, registerCloudOwner, loginCloudOwner, logoutCloudOwner, connectWhatsApp, disconnectWhatsApp, startWhatsAppWorker, stopWhatsAppWorker, refreshWhatsAppStatus } = require('./lib/whatsapp');
 const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, prepareRestore, applyStagedRestore, restoreDatabase, testConnection: testDrive, tryAutoBackup, isBackupDue, DriveError, cleanupStaging } = require('./lib/driveSync');
-const { setSecret } = require('./lib/secrets');
+
 const { createLocalBackup, isLocalBackupDue, listLocalBackups, describeBackupFile, applyRestoreFile, listHistory, backupDir } = require('./lib/backup');
 const APP_VERSION = require('./package.json').version;
 const { createEstimate, listEstimates, getEstimate, getEstimateByNo, updateEstimate, convertEstimateToInvoice, deleteEstimate } = require('./lib/estimates');
@@ -107,13 +107,13 @@ function errMsg(e) {
 
 // Settings safe to send to the client: never expose the passcode hash,
 // only whether one is configured. Any *_token / *_secret / *_hash style
-// key is also withheld as defense-in-depth - API credentials (Twilio etc.)
-// live in lib/secrets, but a stray secret key must never leak via the API.
+// key is also withheld as defense-in-depth - API credentials live in
+// lib/secrets, but a stray secret key must never leak via the API.
 function publicSettings(settings) {
   const all = { ...(settings || getSettings()) };
   const out = {};
   for (const [key, value] of Object.entries(all)) {
-    if (/_token$|_secret$|_hash$|^twilio_/.test(key)) continue;
+    if (/_token$|_secret$|_hash$/.test(key)) continue;
     out[key] = value;
   }
   out.bill_passcode_set = !!all.bill_passcode_hash;
@@ -871,10 +871,12 @@ app.post('/api/sale', loginRequired, async (req, res) => {
     const autoSend = getSetting('whatsapp_auto_send', '0') === '1';
     if ((req.body.send_whatsapp || autoSend) && whatsappPhone) {
       try {
-        whatsapp = await sendBill(invoice, whatsappPhone);
+        // Durable local enqueue - resolves immediately; Meta delivery happens
+        // in the background worker and can never affect the saved sale.
+        whatsapp = sendBill(invoice, whatsappPhone);
       } catch (error) {
         console.error('WhatsApp error:', error);
-        whatsapp = { ok: false, error: error.message, provider: 'whatsapp' };
+        whatsapp = { ok: false, provider: 'meta', friendly: 'The bill was saved, but WhatsApp could not be queued.' };
       }
     }
 
@@ -912,10 +914,10 @@ app.post('/send_bill', loginRequired, async (req, res) => {
     let result = { ok: true, provider: 'none' };
     if (req.body.phone) {
       try {
-        result = await sendBill(invoice, req.body.phone);
+        result = sendBill(invoice, req.body.phone);
       } catch (error) {
         console.error('WhatsApp error:', error);
-        result = { ok: false, error: error.message, provider: 'whatsapp' };
+        result = { ok: false, provider: 'meta', friendly: 'The bill was saved, but WhatsApp could not be queued.' };
       }
     }
 
@@ -934,6 +936,8 @@ app.post('/send_bill', loginRequired, async (req, res) => {
 });
 
 // Send (or retry sending) a saved invoice over WhatsApp. Cashiers may use it.
+// A failed message is requeued; after a terminal success this creates an
+// explicit resend.
 app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
   try {
     const invoice = getInvoice(parseInt(req.params.id));
@@ -944,10 +948,10 @@ app.post('/api/invoices/:id/whatsapp', loginRequired, async (req, res) => {
     if (!phone) {
       return res.status(400).json(jsonError('Customer WhatsApp number is required'));
     }
-    const result = await sendBill(invoice, phone);
+    const result = retryBill(invoice, phone);
     audit(
       req, 'whatsapp', 'sales', invoice.invoice_no,
-      result.ok ? `Bill sent on WhatsApp to ${phone}` : `WhatsApp send failed: ${result.friendly || result.error || 'unknown'}`
+      result.ok ? `Bill queued for WhatsApp to ${phone}` : `WhatsApp queue failed: ${result.friendly || result.error || 'unknown'}`
     );
     res.json({ ok: true, whatsapp: result, invoice_no: invoice.invoice_no });
   } catch (error) {
@@ -1263,6 +1267,7 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       local_backup_interval: true,
       whatsapp_number: true,
       whatsapp_auto_send: true,
+      whatsapp_default_country_code: true,
       must_change_password: true,
       receipt_printer_width: true,
       receipt_font_size: true,
@@ -1285,7 +1290,8 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       }
     }
 
-    // Shop WhatsApp number must be a valid international-format number
+    // whatsapp_number is a legacy receipt/footer contact field - it is not
+    // the WhatsApp sender. Still must be a valid international-format number.
     if (updates.whatsapp_number !== undefined) {
       const v = String(updates.whatsapp_number).trim();
       updates.whatsapp_number = v === '' ? '' : normalizeWhatsAppNumber(v);
@@ -1305,28 +1311,9 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       }
     }
 
-    // Twilio credentials go to the encrypted secrets store - never into the
-    // settings table and never echoed back. Blank fields keep the saved
-    // value; the "clear" flag removes all three.
-    const twilioClear = String(req.body.twilio_disconnect || '') === '1';
-    const newFrom = req.body.twilio_whatsapp_from;
-    if (!twilioClear && newFrom !== undefined && String(newFrom).trim() !== '') {
-      try {
-        req.body.twilio_whatsapp_from = normalizeWhatsAppNumber(newFrom);
-      } catch (e) {
-        return res.status(400).json(jsonError(`WhatsApp sender number: ${e.message}`));
-      }
-    }
-    let secretsChanged = false;
-    for (const key of ['twilio_account_sid', 'twilio_auth_token', 'twilio_whatsapp_from']) {
-      const v = req.body[key];
-      if (twilioClear) {
-        setSecret(key, '');
-        secretsChanged = true;
-      } else if (v !== undefined && String(v).trim() !== '') {
-        setSecret(key, String(v).trim());
-        secretsChanged = true;
-      }
+    if (updates.whatsapp_default_country_code !== undefined &&
+        !/^\+\d{1,3}$/.test(String(updates.whatsapp_default_country_code))) {
+      return res.status(400).json(jsonError('Invalid default country code'));
     }
 
     // Bill passcode: virtual fields, never stored or echoed in plain text
@@ -1352,9 +1339,6 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
     }
     if (passcodeAudit) {
       audit(req, 'update', 'settings', '', passcodeAudit);
-    }
-    if (secretsChanged) {
-      audit(req, 'update', 'settings', '', twilioClear ? 'Twilio credentials cleared' : 'Twilio credentials updated');
     }
     res.json({ ok: true, settings: publicSettings(settings), whatsapp: whatsappStatus() });
   } catch (error) {
@@ -1593,32 +1577,103 @@ app.get('/upi_qr', loginRequired, async (req, res) => {
   }
 });
 
-// WhatsApp routes
-app.get('/api/whatsapp/status', loginRequired, (req, res) => {
-  res.json({ ok: true, whatsapp: whatsappStatus() });
+// Cloud account routes - registration/login are proxied to the gateway; the
+// device token it returns is stored in the encrypted secrets store and never
+// appears in any response body.
+app.get('/api/cloud/status', requireRole('admin'), (req, res) => {
+  const w = whatsappStatus();
+  res.json({
+    ok: true,
+    cloud: { linked: w.linked, cloud_url_set: w.cloud_url_set, shop_name: w.shop_name }
+  });
 });
 
-// Sends a test message to the shop's own configured number (or an explicit
-// test recipient) - never to a customer. The real provider error is logged
-// server-side; the UI gets a plain message.
-app.post('/api/whatsapp/test', requireRole('admin'), async (req, res) => {
+app.post('/api/cloud/register', requireRole('admin'), async (req, res) => {
   try {
-    const result = await sendTestMessage((req.body || {}).to);
-    audit(req, 'whatsapp_test', 'settings', '', result.ok ? `WhatsApp test sent (${result.provider})` : `WhatsApp test failed: ${result.error || 'unknown'}`);
-    res.json({ ok: true, whatsapp: whatsappStatus(), result });
+    const b = req.body || {};
+    const result = await registerCloudOwner({
+      email: b.email, password: b.password,
+      shopName: b.shopName || b.shop_name || getSetting('shop_name', 'Mart POS'),
+      deviceName: b.deviceName || b.device_name || 'POS'
+    });
+    audit(req, 'cloud_register', 'settings', '', 'Cloud account registered and device linked');
+    res.json(result);
+  } catch (error) {
+    res.status(400).json(jsonError(friendlyError(error)));
+  }
+});
+
+app.post('/api/cloud/login', requireRole('admin'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const result = await loginCloudOwner({
+      email: b.email, password: b.password,
+      deviceName: b.deviceName || b.device_name || 'POS'
+    });
+    audit(req, 'cloud_login', 'settings', '', 'Device linked to cloud account');
+    res.json(result);
+  } catch (error) {
+    res.status(400).json(jsonError(friendlyError(error)));
+  }
+});
+
+app.post('/api/cloud/logout', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await logoutCloudOwner();
+    audit(req, 'cloud_logout', 'settings', '', 'Device unlinked from cloud account');
+    res.json(result);
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
 });
 
-// Credential check only - validates the Twilio account against the API.
-// Pass { to: '<number>' } to also send a test message to that explicit
-// number (defaults to the configured shop number when omitted there).
-app.post('/api/whatsapp/test-connection', requireRole('admin'), async (req, res) => {
+// WhatsApp routes
+app.get('/api/whatsapp/status', loginRequired, async (req, res) => {
+  if (whatsappStatus().linked) {
+    try { await refreshWhatsAppStatus(); } catch (_) { /* offline - safe status still returned */ }
+  }
+  res.json({ ok: true, whatsapp: whatsappStatus() });
+});
+
+// Starts Embedded Signup: fetches a one-time onboarding URL from the gateway
+// and opens it in the system browser. The URL itself is not returned to the
+// renderer - only that onboarding was started.
+app.post('/api/whatsapp/connect', requireRole('admin'), async (req, res) => {
   try {
-    const result = await testTwilio((req.body || {}).to || null);
-    audit(req, 'whatsapp_test', 'settings', '', result.ok ? 'Twilio credentials verified' : `Twilio check failed: ${result.friendly || result.error}`);
-    res.json({ ok: !!result.ok, whatsapp: whatsappStatus(), result });
+    const result = await connectWhatsApp();
+    let opened = false;
+    if (result.url) {
+      try {
+        await require('open')(result.url);
+        opened = true;
+      } catch (_) {
+        opened = false;
+      }
+    }
+    audit(req, 'whatsapp_connect', 'settings', '', 'WhatsApp onboarding started');
+    res.json({ ok: true, whatsapp: whatsappStatus(), connect: { started: true, opened, expires_at: result.expires_at } });
+  } catch (error) {
+    res.status(400).json(jsonError(friendlyError(error)));
+  }
+});
+
+app.post('/api/whatsapp/disconnect', requireRole('admin'), async (req, res) => {
+  try {
+    await disconnectWhatsApp();
+    audit(req, 'whatsapp_disconnect', 'settings', '', 'WhatsApp disconnected');
+    res.json({ ok: true, whatsapp: whatsappStatus() });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+// Queues a test invoice-template message to the shop's own configured number
+// (or an explicit test recipient). Delivery happens via the gateway worker.
+app.post('/api/whatsapp/test', requireRole('admin'), async (req, res) => {
+  try {
+    const result = sendTestMessage((req.body || {}).to);
+    audit(req, 'whatsapp_test', 'settings', '', result.ok ? 'WhatsApp test queued' : `WhatsApp test failed: ${result.friendly || result.error || 'unknown'}`);
+    res.json({ ok: true, whatsapp: whatsappStatus(), result });
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
@@ -2216,6 +2271,7 @@ async function startServer() {
     cleanupStaging();
     seedItemsFromJson();
     runHealthChecks();
+    startWhatsAppWorker();
 
     const openBrowser = (port) => {
       if (!process.pkg) {
@@ -2255,6 +2311,7 @@ async function startServer() {
     setInterval(() => { maybeAutoBackup(); }, 15 * 60 * 1000).unref();
 
     const shutdown = () => {
+      stopWhatsAppWorker();
       flushSave();
       process.exit(0);
     };

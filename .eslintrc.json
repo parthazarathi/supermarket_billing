@@ -1,11 +1,21 @@
 {
   "env": {
     "node": true,
-    "es2021": true
+    "es2022": true
+  },
+  "globals": {
+    "fetch": "readonly",
+    "FormData": "readonly",
+    "Blob": "readonly",
+    "AbortSignal": "readonly",
+    "Request": "readonly",
+    "Response": "readonly",
+    "Headers": "readonly",
+    "structuredClone": "readonly"
   },
   "extends": "eslint:recommended",
   "parserOptions": {
-    "ecmaVersion": 12,
+    "ecmaVersion": 2022,
     "sourceType": "module"
   },
   "rules": {
@@ -24,6 +34,7 @@
     "dist-app/",
     "data/",
     "templates/",
-    "qa/"
+    "qa/",
+    "gateway/node_modules/"
   ]
 }

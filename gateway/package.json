@@ -1,0 +1,19 @@
+{
+  "name": "martpos-gateway",
+  "version": "1.0.0",
+  "description": "Public HTTPS gateway for MartPOS WhatsApp (Meta Cloud API) messaging",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "4.22.2",
+    "pg": "8.23.0",
+    "pdfkit": "^0.13.0"
+  }
+}

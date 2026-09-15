@@ -1767,6 +1767,11 @@ kbd {
 .badge-partial, .badge-open, .badge-returned { background: var(--warn-bg); color: var(--warn-text); }
 .badge-unpaid, .badge-cancelled { background: var(--error-bg); color: var(--error-text); }
 
+.wa-cell { padding: 2px 8px; font-size: 12px; white-space: nowrap; }
+.wa-ok { color: var(--ok-text); }
+.wa-fail { color: var(--error-text); }
+.wa-wait { color: var(--warn-text); }
+
 .rpt-session-box { margin-bottom: 16px; }
 .rpt-session-box h3 { margin: 0 0 8px; font-size: 15px; }
 .rpt-session-box .btn { margin-top: 8px; }

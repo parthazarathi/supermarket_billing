@@ -711,7 +711,7 @@ function renderPos(view) {
               <div class="customer-suggestions" id="phoneSuggestions"></div>
             </div>
             <label class="whatsapp-check-label">
-              <input type="checkbox" id="waCheck" ${state.sendWhatsapp ? "checked" : ""} />
+              <input type="checkbox" id="waCheck" ${state.sendWhatsapp ? "checked" : ""} ${state.whatsapp && state.whatsapp.cloud_url_set === false ? "disabled" : ""} />
               Send bill on WhatsApp
             </label>
           </div>
@@ -1241,19 +1241,16 @@ async function chargeBill(openPdf = false) {
     state.sendWhatsapp = false;
     state.paid = "";
     if (wa && wa.provider && wa.provider !== "none") {
-      // WhatsApp was requested - the sale is already saved either way.
-      // With auto-send on, failures stay non-blocking (status line only); the
-      // Sales list still shows ✗ Failed with a retry button. When the cashier
-      // explicitly asked for the send, the retry dialog opens so they can
-      // correct the number right away.
+      // WhatsApp was requested - the sale is already saved either way; delivery
+      // is asynchronous via the local queue. When the cashier explicitly asked
+      // for the send, a queueing failure opens the retry dialog; with auto-send
+      // on, failures stay non-blocking (status line only).
       const autoSendOn = state.settings.whatsapp_auto_send === "1";
-      if (wa.ok && wa.provider === "twilio") {
-        setStatus(`Saved ${data.invoice.invoice_no} · sent on WhatsApp`, "ok");
-      } else if (wa.provider === "simulated") {
-        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp is not configured, bill was not sent`, "error");
-        if (!autoSendOn) whatsappRetryModal(data.invoice);
+      if (wa.ok && wa.queued) {
+        setStatus(`Saved ${data.invoice.invoice_no} · WhatsApp queued`, "ok");
+        pollInvoiceWhatsApp(data.invoice.id, data.invoice.invoice_no);
       } else {
-        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp delivery failed${wa.friendly ? ` (${wa.friendly})` : ""}`, "error");
+        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp could not be queued${wa.friendly ? ` (${wa.friendly})` : ""}`, "error");
         if (!autoSendOn) whatsappRetryModal(data.invoice);
       }
     } else {
@@ -1277,9 +1274,68 @@ async function printBill() {
   await chargeBill(true);
 }
 
+const WA_STATUS_LABELS = {
+  pending: "Sending…", queued: "Sending…", processing: "Sending…",
+  sent: "Sent", delivered: "Delivered", read: "Read",
+  failed: "Failed", cancelled: "Failed"
+};
+function whatsappStatusLabel(status) {
+  const l = WA_STATUS_LABELS[status];
+  if (!l) return "Not sent";
+  if (l === "Sending…") return `⏳ ${l}`;
+  if (l === "Failed") return `✗ ${l}`;
+  return `✓ ${l}`;
+}
+function whatsappStatusClass(status) {
+  if (["sent", "delivered", "read"].includes(status)) return "wa-ok";
+  if (["failed", "cancelled"].includes(status)) return "wa-fail";
+  if (["pending", "queued", "processing"].includes(status)) return "wa-wait";
+  return "";
+}
+function maskPhoneDisplay(phone) {
+  const d = String(phone || "").replace(/\D/g, "");
+  if (d.length < 7) return d ? "•••" : "—";
+  return `+${d.slice(0, 2)}••••${d.slice(-3)}`;
+}
+
+// Short post-sale poll that keeps the status line reflecting this invoice's
+// delivery. It never blocks the sale, stops once a terminal state arrives,
+// and never overwrites a status line that no longer refers to this invoice.
+let waInvoicePoll = null;
+function pollInvoiceWhatsApp(invoiceId, invoiceNo) {
+  if (waInvoicePoll && waInvoicePoll.timer) clearTimeout(waInvoicePoll.timer);
+  const cur = { id: invoiceId, no: invoiceNo, started: Date.now(), timer: null };
+  waInvoicePoll = cur;
+  const step = async () => {
+    if (waInvoicePoll !== cur) return;
+    if (Date.now() - cur.started > 120000) { waInvoicePoll = null; return; }
+    try {
+      const r = await api(`/api/invoices/${invoiceId}`);
+      if (waInvoicePoll !== cur) return;
+      const a = (r.invoice && r.invoice.whatsapp_attempts || [])[0];
+      if (a) {
+        const current = String(state.status || "");
+        if (!current.startsWith("Saved") || !current.includes(invoiceNo)) {
+          waInvoicePoll = null;
+          return;
+        }
+        const label = WA_STATUS_LABELS[a.status] || "Sending…";
+        const isError = a.status === "failed" || a.status === "cancelled";
+        setStatus(`Saved ${invoiceNo} · WhatsApp: ${label}`, isError ? "error" : "ok");
+        if (["delivered", "read", "failed", "cancelled"].includes(a.status)) {
+          waInvoicePoll = null;
+          return;
+        }
+      }
+    } catch (_) { /* offline - keep polling until the cap */ }
+    cur.timer = setTimeout(step, 3000);
+  };
+  cur.timer = setTimeout(step, 3000);
+}
+
 // Send or resend a saved invoice over WhatsApp. Used by the post-sale
-// failure path and the Sales list "WhatsApp" button. The invoice is already
-// saved, so this only ever reports delivery status.
+// failure path and the Sales list "Send on WhatsApp" action. The invoice is
+// already saved, so this only ever queues delivery.
 function whatsappRetryModal(invoice, defaultPhone = "") {
   openModal(
     `<form id="waSendForm">
@@ -1296,7 +1352,7 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
   if (modalSave) modalSave.textContent = "Send";
   const form = document.getElementById("waSendForm");
   const attempts = (invoice.whatsapp_attempts || [])
-    .map((a) => `${a.status === "sent" ? "✓" : "✗"} ${fmtDateTime(a.created_at)}${a.error ? ` — ${a.error}` : ""}`)
+    .map((a) => `${whatsappStatusLabel(a.status)} ${maskPhoneDisplay(a.phone)} ${fmtDateTime(a.created_at)}${a.error ? ` — ${a.error}` : ""}`)
     .join("\n");
   if (attempts) {
     form.insertAdjacentHTML("beforeend", `<p class="help pre-line">Recent attempts:\n${esc(attempts)}</p>`);
@@ -1308,23 +1364,62 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
     const fd = Object.fromEntries(new FormData(form).entries());
     // Guard against double-clicks - one in-flight send at a time.
     if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = "Sending…"; }
-    msg.textContent = "Sending…";
+    msg.textContent = "Queueing…";
     try {
       const r = await api(`/api/invoices/${invoice.id}/whatsapp`, { method: "POST", body: { phone: fd.phone } });
       const w = r.whatsapp || {};
-      if (w.ok && w.provider === "twilio") {
+      if (w.ok && (w.queued || w.status === "pending")) {
         closeModal();
-        setStatus("Bill sent on WhatsApp", "ok");
+        setStatus("Bill queued for WhatsApp delivery", "ok");
+        pollInvoiceWhatsApp(invoice.id, invoice.invoice_no);
         if (state.view === "sales") loadSales();
-      } else if (w.provider === "simulated") {
-        msg.textContent = "WhatsApp is not configured yet (Twilio credentials missing). The shop owner can set it up in Settings → WhatsApp billing.";
+      } else if (w.duplicate) {
+        msg.textContent = "This bill is already being sent — check the WhatsApp status on the sale.";
       } else {
-        msg.textContent = `Could not send WhatsApp bill. ${w.friendly || w.error || ""}`;
+        msg.textContent = `Could not queue WhatsApp bill. ${w.friendly || w.error || ""}`;
       }
     } catch (err) {
       msg.textContent = err.message;
     } finally {
       if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = "Send"; }
+    }
+  });
+}
+
+// Read-only delivery view for a queued/sent/failed WhatsApp bill. Retry is
+// offered only when the last attempt ended failed or cancelled.
+async function whatsappDeliveryModal(invoiceId) {
+  const full = (await api(`/api/invoices/${invoiceId}`)).invoice;
+  const a = (full.whatsapp_attempts || [])[0];
+  const st = a ? a.status : null;
+  const canRetry = st === "failed" || st === "cancelled";
+  openModal(`<div id="waInfo">
+    <h3>WhatsApp Delivery</h3>
+    <p class="help">Invoice ${esc(full.invoice_no)} · ${esc(full.party_name || "Walk-in")} · ${esc(maskPhoneDisplay(a && a.phone ? a.phone : full.party_phone))}</p>
+    <p>Status: <b>${esc(whatsappStatusLabel(st))}</b>${a && a.created_at ? ` · ${esc(fmtDateTime(a.created_at))}` : ""}</p>
+    ${a ? `<p class="muted">Attempts: ${a.retry_count != null ? esc(String(a.retry_count)) : "0"}</p>` : ""}
+    ${a && a.error ? `<p class="muted">${esc(a.error)}</p>` : ""}
+    <div id="waInfoMsg" class="help"></div>
+    ${canRetry ? `<div class="toolbar"><button class="btn" id="waRetryBtn">Retry</button></div>` : ""}
+  </div>`);
+  const btn = document.getElementById("waRetryBtn");
+  if (btn) btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const r = await api(`/api/invoices/${full.id}/whatsapp`, { method: "POST", body: {} });
+      const w = r.whatsapp || {};
+      if (w.ok && (w.queued || w.status === "pending")) {
+        closeModal();
+        setStatus("Bill queued for WhatsApp delivery", "ok");
+        pollInvoiceWhatsApp(full.id, full.invoice_no);
+        if (state.view === "sales") loadSales();
+      } else {
+        document.getElementById("waInfoMsg").textContent = w.friendly || w.error || "Could not queue";
+        btn.disabled = false;
+      }
+    } catch (err) {
+      document.getElementById("waInfoMsg").textContent = err.message;
+      btn.disabled = false;
     }
   });
 }
@@ -1874,18 +1969,17 @@ function renderSales(view) {
     ${filterToolbarHTML(state.salesFilter, state.salesFrom, state.salesTo, `${state.invoices.length} bill${state.invoices.length === 1 ? "" : "s"}`)}
     <div class="card table-wrap">
       <table class="data-table sales-list">
-        <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th>Status</th><th class="actions-col"></th></tr></thead>
+        <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th>WhatsApp</th><th>Status</th><th class="actions-col"></th></tr></thead>
         <tbody>
           ${state.invoices
             .map(
               (i) => `<tr>
                 <td>${esc(i.invoice_no)}</td><td>${esc(fmtDateTime(i.created_at))}</td><td>${esc(i.party_name || "Walk-in")}</td>
                 <td class="num">₹ ${money(i.total)}</td><td class="num">₹ ${money(i.paid)}</td>
-                <td><span class="badge badge-${esc(i.status)}">${esc(i.status)}</span>${i.whatsapp
-                  ? (i.whatsapp.status === "sent"
-                    ? ` <span class="badge badge-paid" title="WhatsApp sent ${esc(fmtDateTime(i.whatsapp.at))}">WA ✓</span>`
-                    : ` <span class="badge badge-unpaid" title="WhatsApp failed: ${esc(i.whatsapp.error || "")}">WA ✗</span>`)
-                  : ""}</td>
+                <td>${i.whatsapp
+                  ? `<button class="btn ghost sm wa-cell ${whatsappStatusClass(i.whatsapp.status)}" data-wainfo="${i.id}" title="WhatsApp ${esc(whatsappStatusLabel(i.whatsapp.status))}${i.whatsapp.at ? ` · ${esc(fmtDateTime(i.whatsapp.at))}` : ""}">${esc(whatsappStatusLabel(i.whatsapp.status))}</button>`
+                  : `<span class="muted">Not sent</span>`}</td>
+                <td><span class="badge badge-${esc(i.status)}">${esc(i.status)}</span></td>
                 <td class="actions-col">
                   <div class="row-menu-wrap">
                     <button class="btn ghost sm icon-btn" data-menu="${i.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
@@ -1902,7 +1996,7 @@ function renderSales(view) {
                 </td>
               </tr>`
             )
-            .join("") || `<tr><td colspan="7" class="empty-state-cell">No bills found for this period.</td></tr>`}
+            .join("") || `<tr><td colspan="8" class="empty-state-cell">No bills found for this period.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1923,6 +2017,15 @@ function renderSales(view) {
       }
     });
   });
+  view.querySelectorAll("[data-wainfo]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await whatsappDeliveryModal(btn.dataset.wainfo);
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
+  });
   view.querySelectorAll(".row-menu [data-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
@@ -1936,8 +2039,13 @@ function renderSales(view) {
           if (window.ReceiptPrinter) ReceiptPrinter.print(full);
           else window.open(`/invoice_pdf?id=${id}`, "_blank");
         } else if (btn.dataset.act === "wa") {
-          const full = (await api(`/api/invoices/${id}`)).invoice;
-          whatsappRetryModal(full);
+          const st = inv && inv.whatsapp ? inv.whatsapp.status : null;
+          if (st && ["pending", "queued", "processing", "sent", "failed", "cancelled"].includes(st)) {
+            await whatsappDeliveryModal(id);
+          } else {
+            const full = (await api(`/api/invoices/${id}`)).invoice;
+            whatsappRetryModal(full);
+          }
         } else if (btn.dataset.act === "pay") {
           if (inv) openReceivePayment(inv);
         } else if (btn.dataset.act === "ret") {
@@ -2904,10 +3012,266 @@ function renderReports(view) {
   }
 }
 
+function waStatusCardHtml() {
+  const w = state.whatsapp || {};
+  const conn = w.connection || {};
+  const s = state.settings || {};
+  const linked = !!w.linked;
+  const connected = !!conn.connected;
+  const needsReconnect = !!conn.needs_reconnect;
+  const tpl = conn.template;
+  const tplStatus = tpl ? String(tpl.status || "").toUpperCase() : "";
+  const tplLabel = tplStatus === "APPROVED" ? "Ready" : (["REJECTED", "PAUSED", "DISABLED"].includes(tplStatus) ? "Needs attention" : "Approval pending");
+  if (!w.cloud_url_set) {
+    return `<h3>WhatsApp Billing</h3>
+      <p class="help">WhatsApp billing is not available on this installation. Please contact MartPOS support.</p>`;
+  }
+  if (!linked) {
+    return `<h3>WhatsApp Billing</h3>
+      <p>Send customer bills directly through WhatsApp.</p>
+      <p><span class="dot off"></span>Status: Not Connected</p>
+      <div class="toolbar"><button class="btn" id="waConnectBtn">Connect WhatsApp</button></div>
+      <p class="help">No technical setup required.</p>`;
+  }
+  if (!connected) {
+    return `<h3>WhatsApp Billing</h3>
+      <p><span class="dot off"></span>Status: ${needsReconnect ? "Reconnect needed" : "Not Connected"}</p>
+      ${conn.last_error ? `<p class="muted">${esc(conn.last_error)}</p>` : ""}
+      <div class="toolbar">
+        <button class="btn" id="waConnectBtn">${needsReconnect ? "Reconnect WhatsApp" : "Connect WhatsApp"}</button>
+        <button class="btn ghost" id="waRelinkBtn">Use another MartPOS account</button>
+      </div>
+      <p class="help">A browser window opens to finish WhatsApp setup.</p>`;
+  }
+  return `<h3>WhatsApp Billing</h3>
+    <p><span class="dot on"></span>✓ WhatsApp Connected</p>
+    <p class="muted">Business: ${esc(conn.business_name || "—")}</p>
+    <p class="muted">WhatsApp: ${esc(conn.phone_masked || "—")}</p>
+    <p class="muted">Auto-send after sale: ${s.whatsapp_auto_send === "1" ? "On" : "Off (cashier chooses)"}</p>
+    <p class="muted">Template: ${esc(tplLabel)}${tpl && tpl.document_enabled ? " (with invoice PDF)" : ""}</p>
+    <div class="toolbar">
+      <button class="btn ghost" id="waTestBill">Send Test Bill</button>
+      <button class="btn ghost" id="waChange">Change WhatsApp</button>
+      <button class="btn danger" id="waDisconnect">Disconnect</button>
+    </div>
+    <div id="waTestMsg" class="help"></div>`;
+}
+
+// Polls /api/whatsapp/status every 3s (max 5 minutes) after onboarding is
+// started so the card flips to Connected without a manual refresh. Only one
+// interval ever runs, and it stops when the card leaves view.
+let waPollTimer = null;
+let waPollStarted = 0;
+function stopWhatsAppPoll() {
+  if (waPollTimer) clearInterval(waPollTimer);
+  waPollTimer = null;
+}
+function refreshWaCard() {
+  const card = document.getElementById("waCard");
+  if (card) {
+    card.innerHTML = waStatusCardHtml();
+    wireWaCard();
+  }
+}
+function pollWhatsAppStatus() {
+  if (waPollTimer) return;
+  waPollStarted = Date.now();
+  waPollTimer = setInterval(async () => {
+    const conn = (state.whatsapp && state.whatsapp.connection) || {};
+    if (state.view !== "settings" || Date.now() - waPollStarted > 5 * 60 * 1000 || conn.connected || conn.needs_reconnect) {
+      stopWhatsAppPoll();
+      return;
+    }
+    try {
+      const r = await api("/api/whatsapp/status");
+      const before = ((state.whatsapp || {}).connection || {}).status;
+      state.whatsapp = r.whatsapp || state.whatsapp;
+      const after = ((state.whatsapp || {}).connection || {}).status;
+      if (after !== before || after === "connected" || after === "needs_reconnect") {
+        refreshWaCard();
+      }
+    } catch (_) { /* gateway unreachable - next tick retries */ }
+  }, 3000);
+}
+
+function waOwnerModal() {
+  let mode = "create";
+  openModal(
+    `<form id="waOwnerForm">
+      <h3>Link your MartPOS account</h3>
+      <p class="help">This securely links this shop to your MartPOS owner account, then continues to WhatsApp setup in your browser.</p>
+      <div class="toolbar" role="tablist">
+        <button type="button" class="btn sm" id="waModeCreate">Create owner account</button>
+        <button type="button" class="btn ghost sm" id="waModeLogin">Sign in</button>
+      </div>
+      <label>Email
+        <input name="email" type="email" required autocomplete="username" autofocus />
+      </label>
+      <label>Password
+        <input name="password" type="password" required minlength="10" autocomplete="new-password" />
+      </label>
+      <label id="waShopRow">Shop name
+        <input name="shopName" value="${esc((state.settings || {}).shop_name || "")}" />
+      </label>
+      <div id="waOwnerMsg" class="help"></div>
+    </form>`,
+    "waOwnerForm"
+  );
+  const saveBtn = document.getElementById("saveModal");
+  if (saveBtn) saveBtn.textContent = "Continue";
+  const setMode = (m) => {
+    mode = m;
+    document.getElementById("waModeCreate").className = m === "create" ? "btn sm" : "btn ghost sm";
+    document.getElementById("waModeLogin").className = m === "login" ? "btn sm" : "btn ghost sm";
+    document.getElementById("waShopRow").style.display = m === "create" ? "" : "none";
+  };
+  document.getElementById("waModeCreate").addEventListener("click", () => setMode("create"));
+  document.getElementById("waModeLogin").addEventListener("click", () => setMode("login"));
+  document.getElementById("waOwnerForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("waOwnerMsg");
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Linking…"; }
+    msg.textContent = "Linking this shop…";
+    try {
+      await api(mode === "create" ? "/api/cloud/register" : "/api/cloud/login", {
+        method: "POST",
+        body: { email: fd.email, password: fd.password, shopName: fd.shopName }
+      });
+      closeModal();
+      await startWhatsAppConnect();
+    } catch (err) {
+      msg.textContent = err.message;
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Continue"; }
+    }
+  });
+}
+
+async function startWhatsAppConnect() {
+  setStatus("Opening WhatsApp setup in your browser…", "ok");
+  try {
+    const r = await api("/api/whatsapp/connect", { method: "POST", body: {} });
+    if (r.whatsapp) state.whatsapp = r.whatsapp;
+    refreshWaCard();
+    pollWhatsAppStatus();
+    setStatus("Finish the WhatsApp setup in your browser — this page updates automatically.", "ok");
+  } catch (err) {
+    setStatus(err.message, "error");
+    refreshWaCard();
+  }
+}
+
+function waTestBillModal() {
+  openModal(
+    `<form id="waTestForm">
+      <h3>Send Test Bill</h3>
+      <p class="help">Sends a sample bill to check WhatsApp delivery.</p>
+      <label>WhatsApp number to receive the test
+        <input name="to" type="tel" required placeholder="+91 XXXXXXXXXX" autofocus />
+      </label>
+      <div id="waTestMsg" class="help"></div>
+    </form>`,
+    "waTestForm"
+  );
+  const saveBtn = document.getElementById("saveModal");
+  if (saveBtn) saveBtn.textContent = "Send test";
+  document.getElementById("waTestForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("waTestMsg");
+    const to = new FormData(e.target).get("to");
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Sending…"; }
+    msg.textContent = "Queueing test bill…";
+    try {
+      const r = await api("/api/whatsapp/test", { method: "POST", body: { to } });
+      if (r.whatsapp) state.whatsapp = r.whatsapp;
+      const res = r.result || {};
+      if (res.ok && res.queued) {
+        closeModal();
+        setStatus("Test bill queued", "ok");
+      } else {
+        msg.textContent = res.friendly || res.error || "Could not queue the test bill.";
+      }
+    } catch (err) {
+      msg.textContent = err.message;
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Send test"; }
+    }
+  });
+}
+
+function waDisconnectModal() {
+  openModal(`<div>
+    <h3>Disconnect WhatsApp?</h3>
+    <p class="help">Future bills will no longer be sent on WhatsApp. All existing invoices and past messages remain saved.</p>
+    <div class="toolbar">
+      <button class="btn ghost" id="waDiscCancel">Cancel</button>
+      <button class="btn danger" id="waDiscConfirm">Disconnect</button>
+    </div>
+    <div id="waDiscMsg" class="help"></div>
+  </div>`);
+  document.getElementById("waDiscCancel").addEventListener("click", closeModal);
+  document.getElementById("waDiscConfirm").addEventListener("click", async () => {
+    const btn = document.getElementById("waDiscConfirm");
+    btn.disabled = true;
+    try {
+      const r = await api("/api/whatsapp/disconnect", { method: "POST", body: {} });
+      if (r.whatsapp) state.whatsapp = r.whatsapp;
+      closeModal();
+      refreshWaCard();
+      setStatus("WhatsApp disconnected", "ok");
+    } catch (err) {
+      document.getElementById("waDiscMsg").textContent = err.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+function waRelinkModal() {
+  openModal(`<div>
+    <h3>Use another MartPOS account?</h3>
+    <p class="help">This unlinks this POS from the current owner account. WhatsApp delivery stops until the shop is linked again.</p>
+    <div class="toolbar">
+      <button class="btn ghost" id="waRelinkCancel">Cancel</button>
+      <button class="btn danger" id="waRelinkConfirm">Unlink account</button>
+    </div>
+    <div id="waRelinkMsg" class="help"></div>
+  </div>`);
+  document.getElementById("waRelinkCancel").addEventListener("click", closeModal);
+  document.getElementById("waRelinkConfirm").addEventListener("click", async () => {
+    const btn = document.getElementById("waRelinkConfirm");
+    btn.disabled = true;
+    try {
+      await api("/api/cloud/logout", { method: "POST", body: {} });
+      state.whatsapp = {};
+      try {
+        const r = await api("/api/whatsapp/status");
+        state.whatsapp = r.whatsapp || state.whatsapp;
+      } catch (_) { /* keep cleared state */ }
+      closeModal();
+      refreshWaCard();
+      setStatus("This POS was unlinked from the MartPOS account", "ok");
+    } catch (err) {
+      document.getElementById("waRelinkMsg").textContent = err.message;
+      btn.disabled = false;
+    }
+  });
+}
+
+function wireWaCard() {
+  document.getElementById("waConnectBtn")?.addEventListener("click", () => {
+    const w = state.whatsapp || {};
+    if (!w.linked) waOwnerModal();
+    else startWhatsAppConnect();
+  });
+  document.getElementById("waRelinkBtn")?.addEventListener("click", waRelinkModal);
+  document.getElementById("waTestBill")?.addEventListener("click", waTestBillModal);
+  document.getElementById("waChange")?.addEventListener("click", () => { startWhatsAppConnect(); });
+  document.getElementById("waDisconnect")?.addEventListener("click", waDisconnectModal);
+}
+
 function renderSettings(view) {
   const s = state.settings || {};
   const d = state.drive || {};
-  const w = state.whatsapp || {};
   view.innerHTML = `
     <div class="settings-layout">
       <form class="card form-grid settings-form" id="setForm">
@@ -2924,6 +3288,9 @@ function renderSettings(view) {
         <label>UPI name
           <input name="upi_name" placeholder="UPI name" value="${esc(s.upi_name || "")}" />
         </label>
+        <label>Receipt contact number (optional)
+          <input name="whatsapp_number" type="tel" placeholder="+91 XXXXXXXXXX" value="${esc(s.whatsapp_number || "")}" />
+        </label>
         <label>Default GST %
           <input name="default_gst" type="number" step="1" placeholder="Default GST %" value="${esc(s.default_gst || "")}" />
         </label>
@@ -2934,21 +3301,14 @@ function renderSettings(view) {
           </select>
         </label>
         <h3 class="full">WhatsApp billing</h3>
-        <label>WhatsApp business number
-          <input name="whatsapp_number" type="tel" placeholder="+91 XXXXXXXXXX" value="${esc(s.whatsapp_number || "")}" />
+        <label>Default country code for customer numbers
+          <select name="whatsapp_default_country_code">
+            ${[["+91", "+91 India"], ["+1", "+1 US/Canada"], ["+44", "+44 UK"], ["+61", "+61 Australia"], ["+971", "+971 UAE"]]
+              .map(([v, l]) => `<option value="${v}" ${(s.whatsapp_default_country_code || "+91") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+          </select>
         </label>
-        <label>Twilio Account SID
-          <input name="twilio_account_sid" placeholder="${(state.whatsapp.fields || {}).account_sid ? "Saved — enter to replace" : "ACxxxxxxxx"}" autocomplete="off" />
-        </label>
-        <label>Twilio Auth Token
-          <input name="twilio_auth_token" type="password" placeholder="${(state.whatsapp.fields || {}).auth_token ? "Saved — enter to replace" : "Auth token"}" autocomplete="new-password" />
-        </label>
-        <label>Twilio WhatsApp sender
-          <input name="twilio_whatsapp_from" type="tel" placeholder="${(state.whatsapp.fields || {}).from ? `Saved ${esc(state.whatsapp.sender_masked || "")} — enter to replace` : "+14155238886"}" autocomplete="off" />
-        </label>
-        <label class="check"><input type="checkbox" name="whatsapp_auto_send" ${s.whatsapp_auto_send === "1" ? "checked" : ""} /> Automatically send WhatsApp bill after sale</label>
-        ${state.whatsapp.configured ? `<label class="check"><input type="checkbox" name="twilio_disconnect" /> Remove saved Twilio credentials</label>` : ""}
-        <p class="help full">Twilio credentials are stored encrypted on this PC and are never shown again. Leave a field blank to keep its saved value.</p>
+        <label class="check"><input type="checkbox" name="whatsapp_auto_send" ${s.whatsapp_auto_send === "1" ? "checked" : ""} /> Automatically send bills on WhatsApp after sale</label>
+        <p class="help full">WhatsApp connection is managed from the WhatsApp Billing card on the right — no technical details are needed.</p>
 
         <h3 class="full">Backups</h3>
         <label class="check"><input type="checkbox" name="drive_auto_backup" ${s.drive_auto_backup === "1" ? "checked" : ""} /> Enable automatic Google Drive backup</label>
@@ -3015,17 +3375,8 @@ function renderSettings(view) {
           <button class="btn ghost" id="rcTestPrint">Print test receipt</button>
         </div>
       </div>
-      <div class="card">
-        <h3>WhatsApp billing</h3>
-        <p><span class="dot ${w.configured ? "on" : "off"}"></span>${w.configured ? "Connected (Twilio)" : "Not configured"}</p>
-        <p class="muted">Business number: ${esc(w.number || "—")}${w.sender_masked ? ` · Sender: ${esc(w.sender_masked)}` : ""}</p>
-        <p class="muted">Auto-send after sale: ${s.whatsapp_auto_send === "1" ? "On" : "Off (cashier chooses)"}</p>
-        <div class="toolbar">
-          <input id="waTestTo" type="tel" placeholder="Test number (default: shop)" class="mw-200" />
-          <button class="btn ghost" id="waTestConn">Test connection</button>
-          <button class="btn ghost" id="waTest">Send test</button>
-        </div>
-        <div id="waTestMsg" class="help"></div>
+      <div class="card" id="waCard">
+        ${waStatusCardHtml()}
       </div>
       <div class="card">
         <h3>Google Drive backup</h3>
@@ -3114,12 +3465,6 @@ function renderSettings(view) {
     fd.drive_auto_backup = e.target.querySelector('[name="drive_auto_backup"]').checked ? "1" : "0";
     fd.whatsapp_auto_send = e.target.querySelector('[name="whatsapp_auto_send"]').checked ? "1" : "0";
     fd.local_backup_enabled = e.target.querySelector('[name="local_backup_enabled"]').checked ? "1" : "0";
-    const twilioClear = e.target.querySelector('[name="twilio_disconnect"]');
-    if (twilioClear && twilioClear.checked) {
-      fd.twilio_disconnect = "1";
-    } else {
-      delete fd.twilio_disconnect;
-    }
     if (!fd.bill_passcode || !String(fd.bill_passcode).trim()) {
       delete fd.bill_passcode;
     }
@@ -3157,45 +3502,7 @@ function renderSettings(view) {
       setStatus(err.message, "error");
     }
   });
-  document.getElementById("waTest").addEventListener("click", async () => {
-    const msg = document.getElementById("waTestMsg");
-    msg.textContent = "Sending test message…";
-    try {
-      const to = document.getElementById("waTestTo").value.trim();
-      const r = await api("/api/whatsapp/test", { method: "POST", body: to ? { to } : {} });
-      if (r.whatsapp) state.whatsapp = r.whatsapp;
-      const res = r.result || {};
-      if (res.provider === "simulated") {
-        msg.textContent = "Twilio credentials are not configured — the message was simulated, not delivered.";
-      } else if (res.ok) {
-        msg.textContent = `Test message sent to ${to || state.whatsapp.number || "the shop number"}.`;
-        setStatus("WhatsApp test sent", "ok");
-      } else {
-        msg.textContent = `Test failed: ${res.friendly || res.error || "unknown error"}`;
-      }
-    } catch (err) {
-      msg.textContent = err.message;
-    }
-  });
-  document.getElementById("waTestConn").addEventListener("click", async () => {
-    const msg = document.getElementById("waTestMsg");
-    msg.textContent = "Checking Twilio credentials…";
-    try {
-      const to = document.getElementById("waTestTo").value.trim();
-      const r = await api("/api/whatsapp/test-connection", { method: "POST", body: to ? { to } : {} });
-      if (r.whatsapp) state.whatsapp = r.whatsapp;
-      const res = r.result || {};
-      if (res.ok && res.sent) {
-        msg.textContent = `Credentials valid — test message sent to ${to || state.whatsapp.number || "the shop number"}.`;
-      } else if (res.ok) {
-        msg.textContent = "Twilio credentials are valid.";
-      } else {
-        msg.textContent = res.friendly || res.error || "Credential check failed.";
-      }
-    } catch (err) {
-      msg.textContent = err.message;
-    }
-  });
+  wireWaCard();
   document.getElementById("drvBackup")?.addEventListener("click", async () => {
     const msg = document.getElementById("drvMsg");
     try {

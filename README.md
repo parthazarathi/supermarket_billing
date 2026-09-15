@@ -32,8 +32,16 @@ npm run desktop
 Build the production app:
 
 ```powershell
+$env:MARTPOS_CLOUD_URL="https://gateway.your-domain.example"
 npm run build
 ```
+
+`MARTPOS_CLOUD_URL` bakes the gateway origin (URL only — never Meta secrets) into
+`generated/platform-config.json`, which is packaged inside the installer and
+portable exe. Shop owners never set an environment variable; the deployed app
+connects to the gateway automatically. For server-mode deployments the operator
+may instead set the variable at runtime, or bake it the same way via
+`npm run build:server-exe`.
 
 Produces in `dist-app\`:
 
@@ -107,24 +115,105 @@ This is backup/restore of the local database, not live two-way sync.
 
 **Disconnect** revokes access and stops automatic backup; existing Drive backups and local data are kept.
 
-## WhatsApp billing (Twilio)
+## WhatsApp billing (Meta Cloud API)
 
-Bills can be sent to customers on WhatsApp through the **Twilio WhatsApp Business API** (official API — WhatsApp Web automation is not supported).
+Bills are sent to customers on WhatsApp through the **WhatsApp Business Platform (Meta Cloud API)** via the MartPOS gateway — an official API; WhatsApp Web automation is not supported. The POS never stores Meta credentials; it only holds an encrypted device token linked to the shop's MartPOS owner account.
 
-1. Get a WhatsApp sender from Twilio (sandbox or an approved WhatsApp Business number).
-2. Settings → **WhatsApp billing**: enter the shop's WhatsApp number and the Twilio **Account SID**, **Auth Token**, and **sender number**. Credentials are stored encrypted in the app data folder and are never returned by the API.
-3. Use **Test connection** to verify credentials, **Send test** to send a test message to the shop (or an explicit test) number. At the POS, tick **Send bill on WhatsApp** before charging — or enable **Automatically send WhatsApp bill after sale**. Any saved invoice can be resent from the Sales list, which also shows the last delivery status (✓ Sent / ✗ Failed) per bill.
+### Owner setup (7 steps)
 
-A WhatsApp failure never affects the sale — the bill stays saved and can be resent. Media/PDF attachments need a public URL, so the bill is sent as formatted text; very large bills are summarized so the message always fits WhatsApp limits.
+1. Open **Settings → WhatsApp Billing** and click **Connect WhatsApp**.
+2. **Create owner account** or **Sign in** with your MartPOS account email and password (new accounts also enter the shop name). This securely links this POS to your shop — no technical details are needed.
+3. A browser window opens Meta's secure setup. Choose your business and the WhatsApp number to send bills from.
+4. The MartPOS setup page asks for your **6-digit WhatsApp security PIN** as part of onboarding — for an existing WhatsApp Business number use the PIN you already set; for a new number choose any memorable 6 digits.
+5. Close the browser tab when the setup page confirms success — MartPOS notices automatically within a few seconds.
+6. Back in Settings the card shows **✓ WhatsApp Connected** with your business name and masked number. Click **Send Test Bill** to check delivery.
+7. Tick **Automatically send bills on WhatsApp after sale**, or use the **Send bill on WhatsApp** checkbox per sale.
+
+A WhatsApp failure never affects a sale — the bill stays saved and queued bills retry automatically when the connection returns. The Sales list has a dedicated **WhatsApp** column (⏳ Sending… / ✓ Sent / ✓ Delivered / ✓ Read / ✗ Failed); click it for delivery details and retry.
+
+### Architecture
+
+```
+POS (this app)  ──HTTPS──>  MartPOS gateway (Express + PostgreSQL)  ──>  Meta Graph API
+      ▲                           ▲                                        │
+      └────── status updates ─────┴──────── webhooks (HMAC-verified) ──────┘
+```
+
+- The POS stores only an **opaque device token** (AES-256-GCM / Windows DPAPI in the desktop app). Meta app secrets and access tokens exist only on the gateway, encrypted with `GATEWAY_ENCRYPTION_KEY`.
+- Every gateway call carries the device token; the gateway derives the shop from the token hash — tenant ids are never accepted from request bodies.
+- Sends are **durable and offline-tolerant**: the POS enqueues into a local queue and returns immediately; a background worker forwards to the gateway (infinite retry, ≤30 min backoff, permanent 4xx failures marked failed). The gateway holds its own PostgreSQL queue (`FOR UPDATE SKIP LOCKED`, 3 Meta attempts, 30s/2m backoff) and polls delivery via webhooks.
+- Status flows back through `GET /v1/whatsapp/messages/updates` using a lossless `(updated_at, id)` cursor.
+
+### Deploying the gateway (PostgreSQL)
+
+```powershell
+cd gateway
+npm ci               # reproducible install from the committed lockfile
+createdb martpos_gateway
+psql -d martpos_gateway -f schema.sql   # schema migration must run first
+# set the env vars below, then:
+npm start            # or: npm run gateway:start from repo root
+# production (process manager):
+pm2 start src/index.js --name martpos-gateway
+```
+
+Required gateway env vars: `DATABASE_URL`, `GATEWAY_PUBLIC_URL` (public `https://` URL), `GATEWAY_ENCRYPTION_KEY` (base64, 32 bytes), `META_APP_ID`, `META_APP_SECRET`, `META_EMBEDDED_SIGNUP_CONFIG_ID`, `META_WEBHOOK_VERIFY_TOKEN`. Optional: `PORT` (default 8080), `META_GRAPH_API_VERSION` (defaults to **v26.0**), `GATEWAY_TRUST_PROXY` (`false`/`0` or hops `1`–`5`, default `1`), `GATEWAY_SUPPORT_USERNAME` + `GATEWAY_SUPPORT_PASSWORD_HASH` (bcrypt) for `/support` and `/v1/support/*`.
+
+### Meta app requirements
+
+- **Embedded Signup v4**: the gateway hosts the signup page at `/onboarding/:token`; the POS opens it via `POST /api/whatsapp/connect`. The Meta app needs an Embedded Signup configuration id (`META_EMBEDDED_SIGNUP_CONFIG_ID`).
+- **App Review / Tech Provider**: production onboarding requires the Meta app to be approved as a Tech Provider (or the shop onboarded under your own WABA). This repository does not include or claim any Meta approval.
+- **Webhook**: point Meta at `POST {GATEWAY_PUBLIC_URL}/webhooks/meta` with verify token `META_WEBHOOK_VERIFY_TOKEN`. HTTPS is required; `X-Hub-Signature-256` is verified with the app secret before the body is parsed.
+- **Template approval**: the gateway creates a `mart_pos_invoice` UTILITY template (text-only body with examples — approvable without a resumable-upload sample handle) and records Meta's reported status. Messages are only sent while the stored status is `APPROVED`; approval is never claimed by the app.
+- **PDF header limitation**: sending the invoice PDF needs a media-header template that must be created and approved separately (document header requires a sample upload at approval time). The built-in default is text-only; a separately approved media template is detected automatically (`document_enabled` in status).
+
+### Local development
+
+```powershell
+npm install                 # root deps
+cd gateway && npm install   # gateway deps (npm ci also works)
+# point the POS at a running gateway:
+$env:MARTPOS_CLOUD_URL="http://127.0.0.1:8080"   # http allowed only for localhost dev/test
+$env:MARTPOS_SECRET_KEY="<base64 32-byte key>"   # required outside the Electron app
+npm start
+npm run test:whatsapp       # unit suite - no real Meta/Postgres calls
+npm run lint
+```
+
+### Production checklist
+
+1. Deploy `gateway/` behind HTTPS with a real PostgreSQL `DATABASE_URL` and all required env vars — run `psql -f schema.sql` before first start.
+2. Set `GATEWAY_PUBLIC_URL` to the public HTTPS origin and configure the Meta webhook URL + verify token.
+3. `MARTPOS_CLOUD_URL` is provisioned by the MartPOS installer / deployment operator — the shop owner never types it. The desktop Electron app stores the device token with Windows **DPAPI** and does not need `MARTPOS_SECRET_KEY`; only standalone `node server.js` / pkg server mode requires that platform-level key for secret storage.
+4. Owners connect via Settings → WhatsApp Billing (Embedded Signup) — no Meta credentials are ever typed into the POS.
+5. Run both processes under a process manager, e.g. `pm2 start gateway/src/index.js --name martpos-gateway` for the gateway and `pm2 start server.js --name mart-pos` for a web-mode POS (the desktop app manages its own backend).
+
+### Environment variable reference
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `FLASK_SECRET_KEY` | POS | session secret (set in production) |
+| `MARTPOS_DATA_DIR` | POS | override data folder (pos.db, secrets, backups) |
+| `PORT` | POS | local web port (default 5000) |
+| `MARTPOS_CLOUD_URL` | POS | gateway base URL — deployment/build-operator config baked into packaged builds via `build:platform-config`, or set at runtime in server mode (https; localhost http only in dev/test) |
+| `MARTPOS_SECRET_KEY` | POS | base64 32-byte key for secret storage when DPAPI is unavailable |
+| `DATABASE_URL` | gateway | PostgreSQL connection string |
+| `GATEWAY_PUBLIC_URL` | gateway | public HTTPS origin (onboarding links, webhook docs) |
+| `GATEWAY_ENCRYPTION_KEY` | gateway | base64 32-byte key encrypting Meta access tokens |
+| `META_APP_ID` / `META_APP_SECRET` | gateway | Meta app credentials |
+| `META_EMBEDDED_SIGNUP_CONFIG_ID` | gateway | Embedded Signup configuration |
+| `META_WEBHOOK_VERIFY_TOKEN` | gateway | webhook GET verification token |
+| `META_GRAPH_API_VERSION` | gateway | Graph API version (default `v26.0`) |
+| `META_GRAPH_BASE_URL` | gateway | test-only Graph base override (ignored outside `NODE_ENV=test`) |
+| `GATEWAY_TRUST_PROXY` | gateway | proxy hops for client IPs (`false`/`0` or `1`–`5`, default `1`) |
+| `GATEWAY_SUPPORT_USERNAME` / `GATEWAY_SUPPORT_PASSWORD_HASH` | gateway | Basic-auth credentials for `/support` |
+
+### Current limitations
+
+- The base POS supports single-method payments only (Cash / UPI / Card). Mixed or split-payment invoices are not modelled, so WhatsApp bill messaging covers single-method invoices only.
+- WhatsApp delivery requires the `mart_pos_invoice` template to be APPROVED by Meta; while it is pending, queued bills report a friendly "not available yet" state instead of sending.
 
 A public hosted website cannot use the shop owner’s Drive until that owner completes OAuth on that same machine.
-
-## Environment variables
-
-- `FLASK_SECRET_KEY` — session secret (set this in production)
-- `MARTPOS_DATA_DIR` — override where `pos.db`, Drive tokens and encrypted secrets are stored
-- `PORT` — web server port (default 5000)
-- Optional WhatsApp via Twilio: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` (fallback only — prefer Settings → Cloud & communication)
 
 ## Production web
 
