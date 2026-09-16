@@ -77,23 +77,62 @@ The installed NSIS build updates itself via `electron-updater` + GitHub Releases
 - **Dev mode:** `npm run desktop` / `npm run dev` never contact the update channel — updates only run in packaged builds.
 - **Data safety:** updates replace only program files. `pos.db`, `backups\`, `secrets.json`, tokens and settings in `%LOCALAPPDATA%\MartPOS\` are untouched, and a `pre-migration-*.db` backup is written before any schema migration runs.
 
-#### Release procedure (e.g. shipping 1.0.1)
+#### Release procedure — pushing an update to users (e.g. shipping 1.0.1)
+
+**1. Finish and commit the changes**
 
 ```powershell
 npm run lint
 npm run test:whatsapp; npm run test:updater
-npm version 1.0.1 --no-git-tag-version   # or: npm version patch
+git add -A; git commit -m "..."
+git push
+```
+
+**2. Bump the version** — `package.json` is the single source of truth:
+
+```powershell
+npm version 1.0.1 --no-git-tag-version   # or: npm version patch / minor / major
+```
+
+**3. Build**
+
+```powershell
+# include only when the WhatsApp gateway is live for this release:
+$env:MARTPOS_CLOUD_URL="https://gateway.your-domain.example"
 npm run build
 ```
 
-Then create a GitHub release tagged `v1.0.1` in `parthazarathi/supermarket_billing` and attach from `dist-app\`:
+Produces in `dist-app\`: `MartPOS-Setup-1.0.1.exe`, `.exe.blockmap`, `MartPOS-Portable-1.0.1.exe`, `latest.yml`.
 
-- `MartPOS-Setup-1.0.1.exe`
-- `MartPOS-Setup-1.0.1.exe.blockmap`  (enables differential downloads)
-- `MartPOS-Portable-1.0.1.exe`
-- `latest.yml`  (**required** — this is the update manifest)
+**4. Smoke-test locally (recommended)** — run `MartPOS-Setup-1.0.1.exe` on a test PC, open a bill, confirm Settings → *Application update* shows `1.0.1`. To verify the update loop itself, serve `dist-app\` on localhost and launch the installed previous version with `MARTPOS_UPDATE_SERVER_URL=http://127.0.0.1:8787`.
 
-Every installed POS running ≥1.0.0 picks it up automatically: *Update available → Update Now → Restart & Update → done.*
+**5. Create the GitHub release** — `github.com/parthazarathi/supermarket_billing` → *Releases → Draft a new release*:
+
+- Tag `v1.0.1`, title `Mart POS 1.0.1`
+- Description = release notes as bullets (the app shows them under "What's new")
+- Attach **all four files** from `dist-app\`:
+
+| File | Required? | Why |
+|---|---|---|
+| `latest.yml` | **yes — critical** | the update manifest the app polls |
+| `MartPOS-Setup-1.0.1.exe` | yes | the update payload + new installs |
+| `MartPOS-Setup-1.0.1.exe.blockmap` | recommended | enables small differential downloads |
+| `MartPOS-Portable-1.0.1.exe` | recommended | portable users download manually |
+
+- **Publish release** (drafts are not checked by clients)
+
+**6. Done — users update themselves.** Every installed POS ≥1.0.0 picks it up within ~4 hours of next launch: *Update available → Update Now → downloads in background → Restart & Update → running 1.0.1.* No uninstalling, no data migration, `pos.db` untouched.
+
+**Optional — one-command publishing.** With `GH_TOKEN` (a PAT with `repo` scope) in the environment, step 5's manual upload can be automated:
+
+```powershell
+$env:GH_TOKEN="ghp_..."
+electron-builder --win nsis portable --publish always
+```
+
+Review the created draft before publishing, and never commit the token.
+
+**Rollback:** delete the bad release on GitHub — clients just stay on the last good version. Ship the fix as a *new* version (1.0.2); never re-upload artifacts under an existing tag because `latest.yml` is cached by clients.
 
 #### Custom / future update server
 
