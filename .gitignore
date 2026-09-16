@@ -55,5 +55,6 @@ data/pos.db.tmp
 
 # QA artifacts (test DBs, browser profile, secrets)
 qa/data*/
+qa/upd-feed/
 qa/ui/edge-profile/
 qa/c.txt

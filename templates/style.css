@@ -2009,6 +2009,52 @@ kbd {
   .cards { grid-template-columns: 1fr; }
 }
 
+/* Application update UI */
+.nav-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  margin-left: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.upd-box {
+  border: 1px solid var(--info-bg);
+  background: var(--info-bg);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.upd-box p { margin: 4px 0; }
+
+.upd-notes {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--info-text);
+}
+
+.upd-notes li { margin: 2px 0; }
+
+.upd-progress {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.upd-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.upd-error { color: var(--error-text); }
+
 @media print {
   .sidebar, .topbar, .rpt-nav, .rpt-tabs, .rpt-filters, .rpt-pagination { display: none !important; }
   .rpt-layout { display: block; }

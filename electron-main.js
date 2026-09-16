@@ -25,7 +25,7 @@ if (typeof electronModule === 'string') {
   process.exit(1);
 }
 
-const { app: electronApp, BrowserWindow, dialog, session, shell } = electronModule;
+const { app: electronApp, BrowserWindow, Menu, dialog, ipcMain, session, shell } = electronModule;
 
 // ---- file logging (must be set up before server.js is required) ----
 const { getDataDir } = require('./lib/paths');
@@ -66,6 +66,71 @@ if (!process.env.PORT) {
 
 const { startServer } = require('./server');
 const { flushSave } = require('./lib/database');
+const updater = require('./lib/updater');
+
+// Forward updater status changes to the renderer. Everything the UI knows
+// about updates comes through this channel - renderer code never touches
+// electron-updater directly.
+function pushUpdateStatus(status) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('martpos:update:event', status);
+    }
+  } catch (_) {
+    // Status delivery is best-effort only.
+  }
+}
+
+// IPC + menu wiring for the update service. Called once after the backend
+// is up so lib/settings (DB-backed preferences) can be read safely.
+function initUpdater() {
+  ipcMain.handle('martpos:update:status', () => updater.getStatus());
+  ipcMain.handle('martpos:update:check', () => updater.checkForUpdates());
+  ipcMain.handle('martpos:update:download', () => updater.downloadUpdate());
+  ipcMain.handle('martpos:update:install', async () => {
+    // Explicit confirmation: the app must never close mid-sale.
+    const status = updater.getStatus();
+    if (status.phase !== 'downloaded') return status;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Restart Now', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Restart MartPOS',
+      message: `Install MartPOS ${status.newVersion || 'update'}?`,
+      detail: 'MartPOS will close, install the update, and reopen. Finish any bill in progress first - the app closes immediately.'
+    });
+    if (response !== 0) return status;
+    try { flushSave(); } catch (e) { console.error('Flush before update failed:', e); }
+    updater.quitAndInstall();
+    return updater.getStatus();
+  });
+  updater.init({ onStatus: pushUpdateStatus });
+
+  // Help menu (Alt reveals the menu bar - autoHideMenuBar is on). Packaged
+  // builds only; dev keeps the default Electron menu with devtools.
+  if (electronApp.isPackaged) {
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+          { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'Help',
+        submenu: [
+          {
+            label: 'Check for Updates',
+            click: () => updater.checkForUpdates()
+          }
+        ]
+      }
+    ]);
+    Menu.setApplicationMenu(menu);
+  }
+}
 
 let mainWindow = null;
 let backendPort = 0;
@@ -216,6 +281,10 @@ if (!gotLock) {
 
     mainWindow.once('ready-to-show', () => mainWindow.show());
     mainWindow.loadURL(`${appOrigin()}/`);
+
+    // Updater is initialized only after the backend and window are ready -
+    // it can never delay or block POS startup.
+    initUpdater();
   });
 
   // Flush the database file before exiting so no sale is lost. When the
@@ -229,6 +298,10 @@ if (!gotLock) {
     } catch (e) {
       console.error('Database flush on quit failed:', e);
     }
+
+    // When quitAndInstall is running, quitting must not be intercepted -
+    // preventing the quit would silently cancel the update install.
+    if (updater.isInstallingUpdate()) return;
 
     if (exitBackupAttempted) return;
     exitBackupAttempted = true;

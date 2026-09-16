@@ -33,7 +33,8 @@ const { sendBill, sendTestMessage, retryBill, normalizeWhatsAppNumber, whatsappS
 const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, prepareRestore, applyStagedRestore, restoreDatabase, testConnection: testDrive, tryAutoBackup, isBackupDue, DriveError, cleanupStaging } = require('./lib/driveSync');
 
 const { createLocalBackup, isLocalBackupDue, listLocalBackups, describeBackupFile, applyRestoreFile, listHistory, backupDir } = require('./lib/backup');
-const APP_VERSION = require('./package.json').version;
+const { appVersion } = require('./lib/version');
+const APP_VERSION = appVersion();
 const { createEstimate, listEstimates, getEstimate, getEstimateByNo, updateEstimate, convertEstimateToInvoice, deleteEstimate } = require('./lib/estimates');
 const { createDeliveryChallan, listDeliveryChallans, getDeliveryChallan, getDeliveryChallanByNo, updateDeliveryChallanStatus, linkChallanToInvoice, deleteDeliveryChallan } = require('./lib/deliveryChallans');
 const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getCreditNote, getDebitNote, updateCreditNoteStatus, updateDebitNoteStatus, deleteCreditNote, deleteDebitNote } = require('./lib/creditDebitNotes');
@@ -1280,7 +1281,9 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       receipt_show_mrp: true,
       receipt_show_hsn: true,
       receipt_show_savings: true,
-      receipt_show_gst_breakup: true
+      receipt_show_gst_breakup: true,
+      update_auto_check: true,
+      update_auto_download: true
     };
     
     const updates = {};
@@ -1305,7 +1308,7 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
         !['6h', 'daily'].includes(String(updates.local_backup_interval))) {
       return res.status(400).json(jsonError('Invalid local backup frequency'));
     }
-    for (const flag of ['whatsapp_auto_send', 'local_backup_enabled']) {
+    for (const flag of ['whatsapp_auto_send', 'local_backup_enabled', 'update_auto_check', 'update_auto_download']) {
       if (updates[flag] !== undefined && !['0', '1'].includes(String(updates[flag]))) {
         return res.status(400).json(jsonError('Invalid on/off value'));
       }

@@ -66,6 +66,39 @@ The Windows build is ready for Authenticode signing — no config changes needed
 
 Never commit the certificate or its password to this repository.
 
+### Automatic updates
+
+The installed NSIS build updates itself via `electron-updater` + GitHub Releases — no reinstall, no manual download for the shop owner.
+
+- **Where it checks:** `parthazarathi/supermarket_billing` releases (baked into `resources/app-update.yml` at build time from the `publish` block in `package.json`).
+- **Flow:** on startup (+ every 4 h) the app checks `latest.yml` on the newest GitHub release → notifies in Settings → downloads in the background → installs only when the owner clicks **Restart & Update** (or closes the app normally). It never force-restarts mid-sale, and a failed check never affects billing.
+- **UI:** Settings → *Application update* card shows version, status, release notes, download progress and the two auto check/download toggles. Help → *Check for Updates* works too (Alt shows the menu bar).
+- **Portable exe:** detected via `PORTABLE_EXECUTABLE_DIR`; shows "download the latest portable version manually" instead of updating.
+- **Dev mode:** `npm run desktop` / `npm run dev` never contact the update channel — updates only run in packaged builds.
+- **Data safety:** updates replace only program files. `pos.db`, `backups\`, `secrets.json`, tokens and settings in `%LOCALAPPDATA%\MartPOS\` are untouched, and a `pre-migration-*.db` backup is written before any schema migration runs.
+
+#### Release procedure (e.g. shipping 1.0.1)
+
+```powershell
+npm run lint
+npm run test:whatsapp; npm run test:updater
+npm version 1.0.1 --no-git-tag-version   # or: npm version patch
+npm run build
+```
+
+Then create a GitHub release tagged `v1.0.1` in `parthazarathi/supermarket_billing` and attach from `dist-app\`:
+
+- `MartPOS-Setup-1.0.1.exe`
+- `MartPOS-Setup-1.0.1.exe.blockmap`  (enables differential downloads)
+- `MartPOS-Portable-1.0.1.exe`
+- `latest.yml`  (**required** — this is the update manifest)
+
+Every installed POS running ≥1.0.0 picks it up automatically: *Update available → Update Now → Restart & Update → done.*
+
+#### Custom / future update server
+
+Point installs at any `latest.yml`-compatible feed without rebuilding the updater — either change the `publish` block in `package.json` (generic provider), or set `MARTPOS_UPDATE_SERVER_URL=https://updates.example.com/martpos` before launch (loopback `http://127.0.0.1` is permitted for QA only). `lib/updateFeed.js` is the single seam for this.
+
 ### Legacy server-mode EXE (browser)
 
 The old `pkg` build — a console exe that serves MartPOS to a web browser — is still available for multi-till/browser deployments:

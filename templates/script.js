@@ -28,6 +28,9 @@ const state = {
   customerPhone: "",
   sendWhatsapp: false,
   held: [],
+  update: null,
+  updateDismissed: "",
+  updateNotifiedFor: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   partyFilter: "customer",
   salesFilter: "all",
@@ -134,6 +137,152 @@ async function api(url, options = {}) {
   return data;
 }
 
+// ---------- Application updates (desktop bridge) ----------
+// window.martpos is injected by the Electron preload script. In a plain
+// browser (`npm run dev`) it does not exist and the update card degrades to
+// an informational message - billing is unaffected.
+const updateBridge = (typeof window !== "undefined" && window.martpos && window.martpos.updates) || null;
+let updateBridgeStarted = false;
+
+function updatePending() {
+  const u = state.update;
+  return !!(u && (u.phase === "available" || u.phase === "downloading" || u.phase === "downloaded"));
+}
+
+function initUpdateBridge() {
+  if (updateBridgeStarted || !updateBridge) return;
+  updateBridgeStarted = true;
+  updateBridge.getStatus().then((s) => { state.update = s; }).catch(() => {});
+  updateBridge.onStatus((s) => {
+    state.update = s;
+    patchUpdateUI();
+  });
+}
+
+function patchUpdateUI() {
+  const u = state.update || {};
+  // Settings nav badge - patched directly so the open form is not rebuilt.
+  const navBtn = document.querySelector('[data-view="settings"]');
+  if (navBtn) {
+    let dot = navBtn.querySelector(".nav-dot");
+    if (updatePending() && !dot) {
+      dot = document.createElement("span");
+      dot.className = "nav-dot";
+      dot.title = "Update available";
+      navBtn.appendChild(dot);
+    } else if (!updatePending() && dot) {
+      dot.remove();
+    }
+  }
+  renderUpdateCard();
+  // One gentle notice per version - never modal, never repeated.
+  const v = u.newVersion || "";
+  if (v && (u.phase === "available" || u.phase === "downloaded") && state.updateNotifiedFor !== v) {
+    state.updateNotifiedFor = v;
+    if (state.view !== "settings") {
+      setStatus(`Update available: MartPOS ${v} - see Settings, Application update`, "ok");
+    }
+  }
+}
+
+function updateCardHtml() {
+  const s = state.settings || {};
+  const u = state.update;
+  const desktop = !!(window.martpos && window.martpos.desktop);
+  const version = (u && u.currentVersion) || (state.about || {}).version || "";
+  let body = "";
+  if (!desktop) {
+    body = `<p class="muted">Automatic updates run inside the MartPOS desktop app.</p>`;
+  } else if (!u) {
+    body = `<p class="muted">Update status will appear here.</p>`;
+  } else if (u.portable) {
+    body = `<p><b>Portable version</b></p>
+      <p class="muted">Automatic updates are not available for the portable version. Please download the latest portable version manually.</p>`;
+  } else if (!u.supported) {
+    body = `<p class="muted">${esc(u.message || "Updates are only available in the installed MartPOS app.")}</p>`;
+  } else {
+    const dismissed = u.newVersion && state.updateDismissed === u.newVersion;
+    if (u.phase === "checking") {
+      body = `<p class="muted">Checking for updates...</p>`;
+    } else if (u.phase === "available" && !dismissed) {
+      body = `<div class="upd-box">
+          <p><b>New version available</b></p>
+          <p class="muted">Current: ${esc(u.currentVersion)} &nbsp;·&nbsp; New: <b>${esc(u.newVersion)}</b></p>
+          ${u.releaseNotes && u.releaseNotes.length ? `<p class="muted">What's new:</p><ul class="upd-notes">${u.releaseNotes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+          <div class="toolbar">
+            <button class="btn" id="updNow">Update Now</button>
+            <button class="btn ghost" id="updLater">Later</button>
+          </div>
+        </div>`;
+    } else if (u.phase === "available" && dismissed) {
+      body = `<p class="muted">Update ${esc(u.newVersion)} is ready to download. <button class="btn sm" id="updNow">Update Now</button></p>`;
+    } else if (u.phase === "downloading") {
+      const p = (u.progress && u.progress.percent) || 0;
+      const mb = u.progress && u.progress.total ? ` of ${(u.progress.total / 1048576).toFixed(0)} MB` : "";
+      body = `<p class="muted">Downloading update${mb}...</p>
+        <div class="upd-progress"><div class="upd-progress-fill" style="width:${p}%"></div></div>
+        <p class="muted">${p}% - please do not close Mart POS. Billing keeps working.</p>`;
+    } else if (u.phase === "downloaded") {
+      body = `<div class="upd-box">
+          <p><b>Update ready</b></p>
+          <p class="muted">Version ${esc(u.newVersion)} has been downloaded. Restart Mart POS to install it.</p>
+          <div class="toolbar">
+            <button class="btn green" id="updRestart">Restart &amp; Update</button>
+            <button class="btn ghost" id="updLater">Later</button>
+          </div>
+        </div>`;
+    } else if (u.phase === "error") {
+      body = `<p class="upd-error">${esc(u.message || "Update check failed.")}</p>
+        <p class="muted">Your current version is still safe to use.</p>
+        <div class="toolbar"><button class="btn ghost" id="updCheck">Try Again</button></div>`;
+    } else {
+      body = `<p><span class="dot on"></span>You're using the latest version</p>
+        ${u.checkedAt ? `<p class="muted">Last checked: ${esc(fmtDateTime(u.checkedAt))}</p>` : ""}`;
+    }
+  }
+  const canCheck = desktop && u && u.supported && !["checking", "downloading"].includes(u.phase);
+  return `
+    <h3>Application update</h3>
+    <p class="muted">Version ${esc(version)}</p>
+    ${body}
+    ${canCheck ? `<div class="toolbar"><button class="btn ghost" id="updCheck">Check for Updates</button></div>` : ""}
+    ${desktop && u && u.supported ? `
+      <p class="help">Automatic updates</p>
+      <label class="check"><input type="checkbox" id="updAutoCheck" ${s.update_auto_check !== "0" ? "checked" : ""} /> Check automatically</label>
+      <label class="check"><input type="checkbox" id="updAutoDl" ${s.update_auto_download !== "0" ? "checked" : ""} /> Download updates automatically</label>` : ""}
+    <div id="updMsg" class="help"></div>`;
+}
+
+function renderUpdateCard() {
+  const card = document.getElementById("updCardBody");
+  if (!card) return;
+  card.innerHTML = updateCardHtml();
+  document.getElementById("updCheck")?.addEventListener("click", () => {
+    if (updateBridge) updateBridge.check().catch(() => {});
+  });
+  document.getElementById("updNow")?.addEventListener("click", () => {
+    if (updateBridge) updateBridge.download().catch(() => {});
+  });
+  document.getElementById("updRestart")?.addEventListener("click", () => {
+    if (updateBridge) updateBridge.install().catch(() => {});
+  });
+  document.getElementById("updLater")?.addEventListener("click", () => {
+    state.updateDismissed = (state.update || {}).newVersion || "";
+    renderUpdateCard();
+  });
+  const saveUpdatePref = async (key, on) => {
+    try {
+      const data = await api("/api/settings", { method: "POST", body: { [key]: on ? "1" : "0" } });
+      state.settings = data.settings || state.settings;
+    } catch (err) {
+      const msg = document.getElementById("updMsg");
+      if (msg) msg.textContent = err.message;
+    }
+  };
+  document.getElementById("updAutoCheck")?.addEventListener("change", (e) => saveUpdatePref("update_auto_check", e.target.checked));
+  document.getElementById("updAutoDl")?.addEventListener("change", (e) => saveUpdatePref("update_auto_download", e.target.checked));
+}
+
 function navItems() {
   const items = [
     ["dashboard", "Dashboard", "dashboard"],
@@ -223,7 +372,7 @@ function render() {
         ${navItems()
           .map(
             ([id, label, icon]) =>
-              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}" role="menuitem" aria-current="${state.view === id ? 'page' : 'false'}" title="${esc(label)}">${navIcon(icon)}<span class="nav-label">${esc(label)}</span></button>`
+              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}" role="menuitem" aria-current="${state.view === id ? 'page' : 'false'}" title="${esc(label)}">${navIcon(icon)}<span class="nav-label">${esc(label)}</span>${id === "settings" && updatePending() ? '<span class="nav-dot" title="Update available"></span>' : ""}</button>`
           )
           .join("")}
         </nav>
@@ -3410,6 +3559,7 @@ function renderSettings(view) {
         </div>
         <div id="localBackupMsg" class="help"></div>
       </div>
+      <div class="card" id="updCardBody"></div>
       <div class="card">
         <h3>About</h3>
         <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
@@ -3575,6 +3725,7 @@ function renderSettings(view) {
     await api(`/api/users/${state.user.id}/password`, { method: "PUT", body: fd });
     setStatus("Password updated", "ok");
   });
+  renderUpdateCard();
 }
 
 // Backup center modal: local snapshots, Google Drive files and the backup
@@ -3912,6 +4063,7 @@ async function bootApp() {
 }
 
 async function start() {
+  initUpdateBridge();
   const me = await api("/api/me");
   state.settings = me.settings || {};
   state.drive = me.drive || {};
