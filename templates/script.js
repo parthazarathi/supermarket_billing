@@ -78,6 +78,47 @@ function esc(v) {
 
 const PRODUCT_CSV_FIELDS = ['code', 'name', 'category', 'hsn', 'gst_percent', 'purchase_price', 'mrp', 'sale_price', 'stock', 'unit', 'low_stock'];
 
+/* ---------- Appearance: theme + accent (device-local UI prefs only) ---------- */
+function applyThemePrefs() {
+  try {
+    const theme = localStorage.getItem("martpos-theme") || "system";
+    const accent = localStorage.getItem("martpos-accent") || "blue";
+    const dark = theme === "dark" || (theme === "system" &&
+      window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.themePref = theme;
+    document.documentElement.dataset.accent = accent;
+  } catch (e) { /* keep defaults */ }
+}
+function setThemePref(v) {
+  localStorage.setItem("martpos-theme", v);
+  applyThemePrefs();
+}
+function setAccentPref(v) {
+  localStorage.setItem("martpos-accent", v);
+  applyThemePrefs();
+}
+function cycleTheme() {
+  setThemePref((document.documentElement.dataset.theme || "light") === "dark" ? "light" : "dark");
+}
+function syncAppearanceControls(root) {
+  const t = document.documentElement.dataset.themePref || "system";
+  const a = document.documentElement.dataset.accent || "blue";
+  (root || document).querySelectorAll("[data-theme-pref]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.themePref === t));
+  (root || document).querySelectorAll(".accent-swatch").forEach((b) =>
+    b.classList.toggle("active", b.dataset.accent === a));
+}
+if (window.matchMedia) {
+  const themeMq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSysTheme = () => {
+    if ((localStorage.getItem("martpos-theme") || "system") === "system") applyThemePrefs();
+  };
+  if (themeMq.addEventListener) themeMq.addEventListener("change", onSysTheme);
+  else if (themeMq.addListener) themeMq.addListener(onSysTheme);
+}
+applyThemePrefs();
+
 // "14 Sep 2026, 6:15 PM" - consistent date/time rendering for backup lists.
 function fmtDateTime(iso) {
   const d = new Date(iso);
@@ -312,6 +353,8 @@ const NAV_ICONS = {
   ai: '<path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1 3 3.87A4 4 0 0 1 21 14a4 4 0 0 1-2 3.46V18a4 4 0 0 1-4 4h-1"/><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 3.87A4 4 0 0 0 3 14a4 4 0 0 0 2 3.46V18a4 4 0 0 0 4 4h1"/><path d="M12 2v20"/><path d="M8 8h.01M16 8h.01M8 16h.01M16 16h.01"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
 };
 
 function navIcon(icon) {
@@ -367,8 +410,11 @@ function render() {
     <div class="shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
       <aside class="sidebar" role="navigation" aria-label="Main navigation">
         <div class="brand">
-          <h1>${esc(shop)}</h1>
-          <small>Billing & inventory</small>
+          <span class="brand-mark" aria-hidden="true">${esc((shop || "M").trim().charAt(0).toUpperCase() || "M")}</span>
+          <div class="brand-text">
+            <h1>${esc(shop)}</h1>
+            <small>Billing &amp; inventory</small>
+          </div>
           <button class="sidebar-toggle" id="sidebarToggle" aria-label="${state.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}">${state.sidebarCollapsed ? '→' : '←'}</button>
         </div>
         <nav role="menu">
@@ -381,8 +427,11 @@ function render() {
         </nav>
         <div class="spacer"></div>
         <div class="user-box">
-          <strong>${esc(state.user.username)}</strong>
-          <span>${esc(state.user.role)}</span>
+          <span class="user-avatar" aria-hidden="true">${esc((state.user.username || "U").charAt(0).toUpperCase())}</span>
+          <div class="user-meta">
+            <strong>${esc(state.user.username)}</strong>
+            <span>${esc(state.user.role)}</span>
+          </div>
           <button class="btn ghost sm sidebar-logout" id="logoutBtn" aria-label="Logout" title="Logout">${navIcon("logout")}<span class="logout-label">Logout</span></button>
         </div>
       </aside>
@@ -408,7 +457,10 @@ function render() {
                 <h2>${navItems().find((n) => n[0] === state.view)?.[1] || ""}</h2>
               </div>`
           }
-          <div class="status ${state.statusType} header-status" role="status" aria-live="polite">${esc(state.status)}</div>
+          <div class="topbar-right">
+            <div class="status ${state.statusType} header-status" role="status" aria-live="polite">${esc(state.status)}</div>
+            <button class="topbar-icon" id="themeToggle" aria-label="Switch color theme" title="Switch light / dark theme">${navIcon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon")}</button>
+          </div>
         </header>
         <div class="content" id="view" role="region" aria-live="polite"></div>
       </section>
@@ -427,6 +479,13 @@ function render() {
     localStorage.setItem("sidebarCollapsed", state.sidebarCollapsed ? "true" : "false");
     render();
   });
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", () => {
+      cycleTheme();
+      themeBtn.innerHTML = navIcon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon");
+    });
+  }
   if (state.view === "pos") {
     appEl.querySelectorAll("[data-pos]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
@@ -587,8 +646,15 @@ function renderDashboard(view) {
 
   const kpi = d ? d.kpi : null;
   const mgr = can("manager");
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
 
   view.innerHTML = `
+    <div class="dash-hero">
+      <h2>${greet}${state.user && state.user.username ? `, ${esc(state.user.username)}` : ""}</h2>
+      <p>${esc(state.settings.shop_name || "Mart POS")} · ${esc(today)}</p>
+    </div>
     <div class="dash-filter">
       ${DASH_PRESETS.map(([p, l]) => `<button class="chip ${ds.preset === p ? "active" : ""}" data-dp="${p}">${l}</button>`).join("")}
       ${ds.preset === "custom" ? `
@@ -599,8 +665,8 @@ function renderDashboard(view) {
     </div>
 
     ${!d ? (state.dashError
-      ? `<div class="rpt-empty">Could not load dashboard: ${esc(state.dashError)}</div>`
-      : `<div class="rpt-loading"><div class="rpt-spinner"></div>Loading dashboard...</div>`) : `
+      ? `<div class="rpt-empty"><b>Something went wrong</b><br>We couldn't load your dashboard.<div class="toolbar" style="justify-content:center;margin-top:14px"><button class="btn" id="dashRetry">Try Again</button></div></div>`
+      : `<div class="skel-cards"><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div></div><div class="skel skel-block"></div><div class="skel skel-block"></div>`) : `
 
     <div class="cards dash-kpi">
       ${dashCard(kpi.sales, ds.preset === "today" ? "Today's Sales" : "Sales", "green")}
@@ -770,6 +836,7 @@ function renderDashboard(view) {
       else switchView(a);
     });
   });
+  view.querySelector("#dashRetry")?.addEventListener("click", loadDashboard);
   if (window.MartAI) window.MartAI.loadAiWidget();
 }
 
@@ -2088,7 +2155,9 @@ function dateRangeFor(filter, customFrom, customTo) {
 function filterToolbarHTML(filter, from, to, countLabel) {
   const filters = [["all", "All"], ["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["custom", "Custom"]];
   return `<div class="toolbar filter-toolbar">
+    <div class="seg" role="group" aria-label="Date range filter">
     ${filters.map(([f, l]) => `<button class="btn ${filter === f ? "" : "ghost"} sm" data-sf="${f}">${l}</button>`).join("")}
+    </div>
     ${filter === "custom" ? `
       <input type="date" id="sfFrom" value="${esc(from)}" aria-label="From date" />
       <input type="date" id="sfTo" value="${esc(to)}" aria-label="To date" />
@@ -3430,8 +3499,21 @@ function renderSettings(view) {
   const s = state.settings || {};
   const d = state.drive || {};
   view.innerHTML = `
-    <div class="settings-layout">
-      <form class="card form-grid settings-form" id="setForm">
+    <div class="settings-shell">
+      <nav class="settings-nav" aria-label="Settings sections">
+        <button type="button" class="settings-nav-btn active" data-sec="general">Shop &amp; Billing</button>
+        <button type="button" class="settings-nav-btn" data-sec="appearance">Appearance</button>
+        <button type="button" class="settings-nav-btn" data-sec="receipt">Receipt</button>
+        <button type="button" class="settings-nav-btn" data-sec="whatsapp">WhatsApp</button>
+        <button type="button" class="settings-nav-btn" data-sec="drive">Google Drive</button>
+        <button type="button" class="settings-nav-btn" data-sec="backup">Local Backup</button>
+        <button type="button" class="settings-nav-btn" data-sec="updates">Updates</button>
+        ${window.MartAI ? `<button type="button" class="settings-nav-btn" data-sec="ai">AI Manager</button>` : ""}
+        <button type="button" class="settings-nav-btn" data-sec="users">Users</button>
+        <button type="button" class="settings-nav-btn" data-sec="about">About</button>
+      </nav>
+      <div class="settings-content settings-layout">
+      <form class="card form-grid settings-form" id="setForm" data-sec="general">
         <h3 class="full">Shop</h3>
         <label>Shop name
           <input name="shop_name" placeholder="Shop name" value="${esc(s.shop_name || "")}" />
@@ -3524,7 +3606,33 @@ function renderSettings(view) {
 
         <div class="full"><button class="btn" type="submit">Save settings</button></div>
       </form>
-      <div class="card">
+      <div class="card" data-sec="appearance">
+        <h3>Appearance</h3>
+        <div class="appearance-row">
+          <div class="ar-text">
+            <div class="ar-title">Theme</div>
+            <div class="ar-desc">Light, dark, or follow the Windows setting.</div>
+          </div>
+          <div class="seg" role="group" aria-label="Color theme">
+            <button type="button" class="seg-btn" data-theme-pref="light">Light</button>
+            <button type="button" class="seg-btn" data-theme-pref="dark">Dark</button>
+            <button type="button" class="seg-btn" data-theme-pref="system">System</button>
+          </div>
+        </div>
+        <div class="appearance-row">
+          <div class="ar-text">
+            <div class="ar-title">Accent color</div>
+            <div class="ar-desc">Used for buttons, highlights and charts on this terminal.</div>
+          </div>
+          <div class="accent-swatches" role="group" aria-label="Accent color">
+            <button type="button" class="accent-swatch" data-accent="blue" aria-label="Blue accent"></button>
+            <button type="button" class="accent-swatch" data-accent="green" aria-label="Green accent"></button>
+            <button type="button" class="accent-swatch" data-accent="purple" aria-label="Purple accent"></button>
+            <button type="button" class="accent-swatch" data-accent="orange" aria-label="Orange accent"></button>
+          </div>
+        </div>
+      </div>
+      <div class="card" data-sec="receipt">
         <h3>Receipt preview</h3>
         <p class="help">Live preview of the thermal receipt template. Changes update instantly; save to keep them.</p>
         <div id="receiptPreview"></div>
@@ -3532,10 +3640,10 @@ function renderSettings(view) {
           <button class="btn ghost" id="rcTestPrint">Print test receipt</button>
         </div>
       </div>
-      <div class="card" id="waCard">
+      <div class="card" id="waCard" data-sec="whatsapp">
         ${waStatusCardHtml()}
       </div>
-      <div class="card">
+      <div class="card" data-sec="drive">
         <h3>Google Drive backup</h3>
         <p><span class="dot ${d.connected ? "on" : "off"}"></span>${d.connected ? `Connected${d.email ? ` · ${esc(d.email)}` : ""}` : "Not connected"}</p>
         ${d.connected ? `
@@ -3556,7 +3664,7 @@ function renderSettings(view) {
         </div>
         <div id="drvMsg" class="help"></div>
       </div>
-      <div class="card">
+      <div class="card" data-sec="backup">
         <h3>Local backup</h3>
         <p><span class="dot on"></span>Stored in the app data folder on this PC</p>
         <p class="muted">Last local backup: ${esc(state.about && state.about.last_local_backup_at ? fmtDateTime(state.about.last_local_backup_at) : "never")}</p>
@@ -3567,15 +3675,15 @@ function renderSettings(view) {
         </div>
         <div id="localBackupMsg" class="help"></div>
       </div>
-      <div class="card" id="updCardBody"></div>
-      ${window.MartAI ? window.MartAI.aiSettingsCardHtml() : ""}
-      <div class="card">
+      <div class="card" id="updCardBody" data-sec="updates"></div>
+      ${window.MartAI ? `<div data-sec="ai">${window.MartAI.aiSettingsCardHtml()}</div>` : ""}
+      <div class="card" data-sec="about">
         <h3>About</h3>
         <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
         <p class="muted">Data folder: <code>${esc((state.about || {}).data_dir || "")}</code></p>
         <p class="muted">Last cloud backup: ${esc(d.last_backup_at ? fmtDateTime(d.last_backup_at) : "never")}</p>
       </div>
-      <div class="card">
+      <div class="card" data-sec="users">
         <h3>Users</h3>
         <form id="userForm" class="toolbar">
           <input name="username" placeholder="Username" />
@@ -3596,6 +3704,7 @@ function renderSettings(view) {
           <input name="password" type="password" placeholder="Change my password" />
           <button class="btn ghost">Update password</button>
         </form>
+      </div>
       </div>
     </div>`;
   const receiptCfgFromForm = (form) => {
@@ -3734,6 +3843,29 @@ function renderSettings(view) {
     await api(`/api/users/${state.user.id}/password`, { method: "PUT", body: fd });
     setStatus("Password updated", "ok");
   });
+  const secBtns = view.querySelectorAll(".settings-nav-btn");
+  secBtns.forEach((b) => {
+    b.addEventListener("click", () => {
+      const target = view.querySelector(`.settings-content [data-sec="${b.dataset.sec}"]`);
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      secBtns.forEach((x) => x.classList.toggle("active", x === b));
+    });
+  });
+  view.querySelectorAll("[data-theme-pref]").forEach((b) => {
+    b.addEventListener("click", () => {
+      setThemePref(b.dataset.themePref);
+      syncAppearanceControls(view);
+      const tb = document.getElementById("themeToggle");
+      if (tb) tb.innerHTML = navIcon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon");
+    });
+  });
+  view.querySelectorAll(".accent-swatch").forEach((b) => {
+    b.addEventListener("click", () => {
+      setAccentPref(b.dataset.accent);
+      syncAppearanceControls(view);
+    });
+  });
+  syncAppearanceControls(view);
   renderUpdateCard();
   if (window.MartAI) {
     window.MartAI.bindAiSettingsCard();
