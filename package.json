@@ -1,6 +1,6 @@
 {
   "name": "mart-pos",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Supermarket billing, inventory and POS",
   "main": "electron-main.js",
   "bin": "server.js",
