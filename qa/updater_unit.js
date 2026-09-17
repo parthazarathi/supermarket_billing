@@ -80,5 +80,14 @@ check('UP-STA-001', 'pre-init status is unsupported idle',
 check('UP-STA-002', 'quitAndInstall refuses without download',
   updater.quitAndInstall() === false);
 
+// ---------- MSIX install detection (Store manages updates there) ----------
+check('UP-MSIX-001', 'WindowsApps path detected as MSIX',
+  updater.isMsixInstall('C:\\Program Files\\WindowsApps\\MartPOS_1.0.0.0_x64__abc123\\app\\MartPOS.exe'));
+check('UP-MSIX-002', 'NSIS install path not MSIX',
+  !updater.isMsixInstall('C:\\Users\\shop\\AppData\\Local\\Programs\\MartPOS\\MartPOS.exe'));
+check('UP-MSIX-003', 'dev electron path not MSIX',
+  !updater.isMsixInstall('D:\\Projects\\app\\node_modules\\electron\\dist\\electron.exe'));
+check('UP-MSIX-004', 'empty path not MSIX', !updater.isMsixInstall(''));
+
 console.log(`\n${results.length - failures}/${results.length} checks passed`);
 process.exit(failures ? 1 : 0);

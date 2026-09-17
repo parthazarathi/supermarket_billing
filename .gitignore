@@ -22,6 +22,12 @@ data/tokens.json
 dist/
 dist-app/
 *.exe
+*.msix
+*.msixbundle
+*.msixupload
+*.appx
+*.appxbundle
+*.appxupload
 
 # IDE
 .vscode/

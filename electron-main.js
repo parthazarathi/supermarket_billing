@@ -39,20 +39,62 @@ process.on('unhandledRejection', (reason) => {
 
 console.log('MartPOS starting');
 
-// First-run data migration: if this packaged build finds no database in the
-// app data dir, adopt a pos.db left next to the executable by an older build
-// (portable exe or repo install). Copy only - the legacy file is never moved
-// or deleted, and an existing database is never overwritten.
+// First-run data adoption: if this packaged build finds no database in the
+// app data dir, adopt a data set left next to the executable by an older
+// build (portable exe, server-mode exe or a repo install). Copy only - the
+// legacy files are never moved or deleted, existing data is never
+// overwritten, and every copied file is size-verified. Idempotent: a
+// present pos.db means there is nothing to adopt, so later launches are
+// a no-op. Under MSIX the exe dir is read-only - this only reads from it.
+function copyIfMissing(src, dest) {
+  try {
+    if (!fs.existsSync(src) || fs.existsSync(dest)) return false;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    if (fs.statSync(src).size !== fs.statSync(dest).size) {
+      // Never leave a half-copied file where the app would trust it.
+      try { fs.renameSync(dest, `${dest}.migration-failed`); } catch (_) { /* best effort */ }
+      console.error(`Migration: ${path.basename(src)} copied incompletely - skipped`);
+      return false;
+    }
+    console.log(`Migrated ${path.basename(src)} from legacy data folder`);
+    return true;
+  } catch (e) {
+    console.error(`Migration: could not copy ${path.basename(src)}:`, e.message);
+    return false;
+  }
+}
+
 function migrateLegacyData() {
   try {
     if (!electronApp.isPackaged) return;
-    const dbPath = path.join(getDataDir(), 'pos.db');
-    if (fs.existsSync(dbPath)) return;
-    const legacyPath = path.join(path.dirname(process.execPath), 'data', 'pos.db');
-    if (fs.existsSync(legacyPath) && legacyPath !== dbPath) {
-      fs.copyFileSync(legacyPath, dbPath);
-      console.log(`Migrated existing database from ${legacyPath}`);
+    const dataDir = getDataDir();
+    const legacyDir = path.join(path.dirname(process.execPath), 'data');
+    if (legacyDir === dataDir || !fs.existsSync(legacyDir)) return;
+    if (fs.existsSync(path.join(dataDir, 'pos.db'))) return;
+    if (!fs.existsSync(path.join(legacyDir, 'pos.db'))) return;
+
+    if (!copyIfMissing(path.join(legacyDir, 'pos.db'), path.join(dataDir, 'pos.db'))) return;
+
+    // Companion files that travel with the database - first run wins, so a
+    // partially-populated data dir is still respected file by file.
+    for (const name of ['secrets.json', 'credentials.json', 'token.json', 'session-secret.txt']) {
+      copyIfMissing(path.join(legacyDir, name), path.join(dataDir, name));
     }
+    // Local backups keep the adopted database recoverable.
+    const legacyBackups = path.join(legacyDir, 'backups');
+    try {
+      if (fs.existsSync(legacyBackups)) {
+        for (const f of fs.readdirSync(legacyBackups)) {
+          if (f.toLowerCase().endsWith('.db')) {
+            copyIfMissing(path.join(legacyBackups, f), path.join(dataDir, 'backups', f));
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Migration: could not copy legacy backups:', e.message);
+    }
+    console.log('Legacy data adoption complete');
   } catch (e) {
     console.error('Data migration failed:', e);
   }

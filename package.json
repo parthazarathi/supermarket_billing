@@ -1,14 +1,18 @@
 {
   "name": "mart-pos",
   "version": "1.0.0",
-  "description": "Vyapar-style billing application - migrated from Python to Node.js",
+  "description": "Supermarket billing, inventory and POS",
   "main": "electron-main.js",
   "bin": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "desktop": "electron .",
-    "build": "npm run build:platform-config && electron-builder --win nsis portable",
+    "build": "npm run build:platform-config && node build-windows.js nsis portable",
+    "build:win": "npm run build:platform-config && node build-windows.js",
+    "build:installer": "npm run build",
+    "build:msix": "npm run build:platform-config && node build-msix.js",
+    "build:appx-assets": "node build/make-appx-assets.js",
     "build:server-exe": "npm run build:platform-config && pkg . --targets node18-win-x64 --output dist/MartPOS-Server.exe",
     "build:platform-config": "node build-platform-config.js",
     "build:server-installer": "npm run build:server-exe && node build-installer.js",
@@ -82,7 +86,8 @@
       "icon": "build/icon.ico",
       "target": [
         "nsis",
-        "portable"
+        "portable",
+        "appx"
       ],
       "requestedExecutionLevel": "asInvoker",
       "signtoolOptions": {
@@ -103,6 +108,25 @@
     },
     "portable": {
       "artifactName": "MartPOS-Portable-${version}.${ext}"
+    },
+    "appx": {
+      "applicationId": "MartPOS",
+      "identityName": "MartPOS",
+      "displayName": "MartPOS",
+      "publisherDisplayName": "MartPOS",
+      "backgroundColor": "#16a34a",
+      "artifactName": "MartPOS-${version}.msix",
+      "languages": [
+        "en-US",
+        "en-IN"
+      ],
+      "capabilities": [
+        "internetClient",
+        "internetClientServer",
+        "privateNetworkClientServer",
+        "codeGeneration"
+      ],
+      "showNameOnTiles": true
     }
   },
   "pkg": {

@@ -47,7 +47,11 @@ Produces in `dist-app\`:
 
 - `MartPOS-Setup-<version>.exe` — NSIS installer (per-user install, Start Menu + desktop shortcuts, uninstaller)
 - `MartPOS-Portable-<version>.exe` — single portable exe, no install needed
+- `MartPOS-<version>.msix` — MSIX package (`npm run build:msix`; see WINDOWS-DISTRIBUTION.md for signing + Store submission)
 - `win-unpacked\MartPOS.exe` — the unpacked app for testing
+
+`npm run build` produces the NSIS + portable artifacts; `npm run build:win`
+produces all Windows targets including the MSIX.
 
 The installer never touches shop data in `%LOCALAPPDATA%\MartPOS\`, so reinstalls, upgrades and uninstalls keep invoices, settings, secrets and backups. App files and shop data are fully separated, so a future auto-updater can replace the program without ever touching `pos.db`, `backups\`, `secrets.json`, `token.json` or settings.
 
@@ -96,6 +100,7 @@ The installed NSIS build updates itself via `electron-updater` + GitHub Releases
 - **Flow:** on startup (+ every 4 h) the app checks `latest.yml` on the newest GitHub release → notifies in Settings → downloads in the background → installs only when the owner clicks **Restart & Update** (or closes the app normally). It never force-restarts mid-sale, and a failed check never affects billing.
 - **UI:** Settings → *Application update* card shows version, status, release notes, download progress and the two auto check/download toggles. Help → *Check for Updates* works too (Alt shows the menu bar).
 - **Portable exe:** detected via `PORTABLE_EXECUTABLE_DIR`; shows "download the latest portable version manually" instead of updating.
+- **MSIX install:** detected via the read-only `WindowsApps` install path; updates are managed by the Microsoft Store — the in-app updater stays idle.
 - **Dev mode:** `npm run desktop` / `npm run dev` never contact the update channel — updates only run in packaged builds.
 - **Data safety:** updates replace only program files. `pos.db`, `backups\`, `secrets.json`, tokens and settings in `%LOCALAPPDATA%\MartPOS\` are untouched, and a `pre-migration-*.db` backup is written before any schema migration runs.
 
