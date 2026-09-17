@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "gateway:start": "node gateway/src/index.js",
     "test:whatsapp": "node qa/whatsapp_meta_unit.js",
-    "test:updater": "node qa/updater_unit.js"
+    "test:updater": "node qa/updater_unit.js",
+    "test:ai": "node qa/ai_unit.js"
   },
   "keywords": [
     "pos",

@@ -40,6 +40,8 @@ const { createDeliveryChallan, listDeliveryChallans, getDeliveryChallan, getDeli
 const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getCreditNote, getDebitNote, updateCreditNoteStatus, updateDebitNoteStatus, deleteCreditNote, deleteDebitNote } = require('./lib/creditDebitNotes');
 const { createPurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderByNo, updatePurchaseOrderStatus, convertPurchaseOrderToPurchase, deletePurchaseOrder } = require('./lib/purchaseOrders');
 const { listAccounts, getAccount, saveAccount, deleteAccount, createTransaction, listAccountTransactions, getDefaultAccount } = require('./lib/accounts');
+const aiService = require('./lib/ai/service');
+const { listAiAudit } = require('./lib/ai/audit');
 
 const ROLE_LEVEL = { cashier: 1, manager: 2, admin: 3 };
 
@@ -93,6 +95,7 @@ app.use('/style.css', express.static(path.join(templatesDir, 'style.css')));
 app.use('/script.js', express.static(path.join(templatesDir, 'script.js')));
 app.use('/reports.js', express.static(path.join(templatesDir, 'reports.js')));
 app.use('/receipt.js', express.static(path.join(templatesDir, 'receipt.js')));
+app.use('/ai.js', express.static(path.join(templatesDir, 'ai.js')));
 app.use('/vendor', express.static(path.join(templatesDir, 'vendor')));
 
 // Helper functions
@@ -2195,6 +2198,70 @@ app.post('/api/accounts/:id/transactions', requireRole('manager'), (req, res) =>
 
 app.get('/api/health', requireRole('admin'), (req, res) => {
   res.json({ ok: true, health: healthReport, about: { version: APP_VERSION, schema_version: dbInfo().schema_version } });
+});
+
+// ---- AI Store Manager ----
+// Read-only assistant on top of the existing business layer. The model can
+// only call the registered tools - never SQL, never writes. All routes fail
+// closed: an AI outage must never affect billing.
+app.get('/api/ai/status', loginRequired, (req, res) => {
+  res.json({ ok: true, ai: aiService.aiStatus() });
+});
+
+app.post('/api/ai/chat', loginRequired, async (req, res) => {
+  try {
+    const user = currentUser(req);
+    const result = await aiService.chat({
+      user,
+      question: (req.body || {}).message,
+      history: (req.body || {}).history
+    });
+    res.json(result);
+  } catch (error) {
+    if (error && error.code === 'rate_limited') {
+      return res.status(429).json(jsonError(errMsg(error)));
+    }
+    if (error && error.code === 'bad_request') {
+      return res.status(400).json(jsonError(errMsg(error)));
+    }
+    console.error('AI chat failed:', error);
+    res.json({ ok: true, reply: 'AI Store Manager is temporarily unavailable. Your POS billing and other features continue to work normally.', tools_used: [], error: 'unavailable' });
+  }
+});
+
+app.get('/api/ai/summary', loginRequired, async (req, res) => {
+  try {
+    const user = currentUser(req);
+    const wantInsight = req.query.insight !== '0';
+    const summary = await aiService.dashboardSummary(user, { wantInsight });
+    res.json(summary);
+  } catch (error) {
+    console.error('AI summary failed:', error);
+    res.status(400).json(jsonError('Summary unavailable'));
+  }
+});
+
+// Admin-only AI configuration. The API key is write-only and stored in the
+// encrypted secrets store - it is never returned by any endpoint.
+app.post('/api/ai/config', requireRole('admin'), (req, res) => {
+  try {
+    const body = req.body || {};
+    const status = aiService.configureAi({
+      apiKey: body.api_key,
+      model: body.model,
+      enabled: body.enabled === undefined ? undefined
+        : (body.enabled === true || body.enabled === '1' || body.enabled === 'true' || body.enabled === 1)
+    });
+    audit(req, 'update', 'settings', '', 'AI Store Manager configuration updated');
+    res.json({ ok: true, ai: status });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+app.get('/api/ai/audit', requireRole('admin'), (req, res) => {
+  const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 100));
+  res.json({ ok: true, rows: listAiAudit(limit) });
 });
 
 // 404 handler

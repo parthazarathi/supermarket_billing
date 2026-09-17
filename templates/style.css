@@ -2071,3 +2071,162 @@ kbd {
   }
   .rpt-spinner { animation: none; border-top-color: var(--border-medium); }
 }
+
+/* ---------- AI Store Manager ---------- */
+.ai-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  max-width: 980px;
+}
+
+.ai-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.ai-hero-left { display: flex; align-items: center; gap: var(--space-4); }
+.ai-hero-left h3 { margin: 0 0 2px; }
+.ai-hero-left p { margin: 0; }
+.ai-hero-right { display: flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+
+.ai-avatar {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  background: var(--info-bg);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.ai-notice { padding: var(--space-4) var(--space-5); border-left: 4px solid var(--warning); }
+.ai-notice p { margin: 0 0 6px; }
+
+.ai-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 380px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ai-empty { margin: auto; text-align: center; padding: var(--space-6) 0; }
+.ai-sugs { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; max-width: 560px; }
+.ai-sugs-ta { margin-top: var(--space-3); font-size: 12px; }
+
+.ai-msg { display: flex; }
+.ai-msg.ai-user { justify-content: flex-end; }
+.ai-msg.ai-assistant { justify-content: flex-start; flex-direction: column; align-items: flex-start; }
+
+.ai-bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+}
+
+.ai-user .ai-bubble {
+  background: var(--primary);
+  color: var(--text-inverse);
+  border-bottom-right-radius: 4px;
+}
+
+.ai-assistant .ai-bubble {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.ai-error .ai-bubble { background: var(--error-bg); color: var(--error-text); }
+
+.ai-tools {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-light);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.ai-thinking { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+.ai-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-tertiary);
+  display: inline-block;
+  animation: ai-blink 1.2s infinite;
+}
+.ai-dot:nth-child(2) { animation-delay: 0.2s; }
+.ai-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes ai-blink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+.ai-msg-actions { display: flex; gap: var(--space-2); margin-top: 2px; }
+.ai-act {
+  border: none; background: none; cursor: pointer;
+  color: var(--text-tertiary); font-size: 12px; padding: 2px 4px;
+}
+.ai-act:hover { color: var(--primary); }
+
+.ai-inputbar {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-light);
+  background: var(--surface);
+}
+
+.ai-inputbar textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border-medium);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.ai-inputbar textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+/* Dashboard widget */
+.ai-widget { padding: var(--space-4) var(--space-5); }
+.ai-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-2) 0 var(--space-3);
+}
+.ai-wstat { display: flex; flex-direction: column; }
+.ai-wstat .label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.4px; }
+.ai-wstat .value { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+
+.ai-insight {
+  border-top: 1px dashed var(--border-light);
+  padding-top: var(--space-2);
+}
+.ai-insight p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.ai-insight-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--primary);
+  text-transform: uppercase;
+}

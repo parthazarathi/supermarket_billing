@@ -51,6 +51,7 @@ generated/
 # Local secrets / test artifacts
 cookies.txt
 data/session-secret.txt
+data/secrets.json
 data/pos.db.tmp
 
 # QA artifacts (test DBs, browser profile, secrets)

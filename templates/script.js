@@ -33,6 +33,7 @@ const state = {
   updateNotifiedFor: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   partyFilter: "customer",
+  ai: null,
   salesFilter: "all",
   salesFrom: "",
   salesTo: "",
@@ -294,6 +295,7 @@ function navItems() {
   if (can("manager")) {
     items.push(["purchases", "Purchases", "purchases"], ["expenses", "Expenses", "expenses"], ["reports", "Reports", "reports"]);
   }
+  items.push(["ai", "AI Manager", "ai"]);
   if (can("admin")) items.push(["settings", "Settings", "settings"]);
   return items;
 }
@@ -307,6 +309,7 @@ const NAV_ICONS = {
   purchases: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
   expenses: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>',
   reports: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+  ai: '<path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1 3 3.87A4 4 0 0 1 21 14a4 4 0 0 1-2 3.46V18a4 4 0 0 1-4 4h-1"/><path d="M12 2a4 4 0 0 0-4 4v1a4 4 0 0 0-3 3.87A4 4 0 0 0 3 14a4 4 0 0 0 2 3.46V18a4 4 0 0 0 4 4h1"/><path d="M12 2v20"/><path d="M8 8h.01M16 8h.01M8 16h.01M16 16h.01"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
 };
@@ -496,6 +499,7 @@ async function switchView(view) {
     if (view === "expenses") await loadExpenses();
     if (view === "reports") await loadReports();
     if (view === "settings") await loadSettings();
+    if (view === "ai" && window.MartAI) await window.MartAI.loadAI();
   } catch (err) {
     setStatus(err.message, "error");
   }
@@ -519,6 +523,7 @@ function renderView() {
     expenses: renderExpenses,
     reports: renderReports,
     settings: renderSettings,
+    ai: (v) => window.MartAI && window.MartAI.renderAI(v),
   };
   (map[state.view] || renderPos)(view);
 }
@@ -619,6 +624,8 @@ function renderDashboard(view) {
         <button class="btn sm ghost" data-qa="items">Stock Adjustment</button>
         <button class="btn sm ghost" data-qa="reports">Reports</button>` : ""}
     </div>
+
+    ${window.MartAI ? window.MartAI.aiWidgetCardHtml() : ""}
 
     <div class="dash-grid">
       <div class="card">
@@ -763,6 +770,7 @@ function renderDashboard(view) {
       else switchView(a);
     });
   });
+  if (window.MartAI) window.MartAI.loadAiWidget();
 }
 
 function renderPos(view) {
@@ -3560,6 +3568,7 @@ function renderSettings(view) {
         <div id="localBackupMsg" class="help"></div>
       </div>
       <div class="card" id="updCardBody"></div>
+      ${window.MartAI ? window.MartAI.aiSettingsCardHtml() : ""}
       <div class="card">
         <h3>About</h3>
         <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
@@ -3726,6 +3735,10 @@ function renderSettings(view) {
     setStatus("Password updated", "ok");
   });
   renderUpdateCard();
+  if (window.MartAI) {
+    window.MartAI.bindAiSettingsCard();
+    window.MartAI.loadAI();
+  }
 }
 
 // Backup center modal: local snapshots, Google Drive files and the backup
