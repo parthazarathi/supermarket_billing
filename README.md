@@ -53,18 +53,40 @@ The installer never touches shop data in `%LOCALAPPDATA%\MartPOS\`, so reinstall
 
 On a fresh PC: run the setup, launch MartPOS, log in with `admin` / `admin`. To carry over an existing shop's data, copy `data\pos.db` into `%LOCALAPPDATA%\MartPOS\pos.db` or use Google Drive backup/restore. A `pos.db` left in a `data\` folder next to the exe is adopted automatically on first launch.
 
-### Code signing (optional)
+### Code signing
 
-The Windows build is ready for Authenticode signing — no config changes needed:
+The Windows build is ready for Authenticode signing — no config changes needed.
 
-1. Obtain a code-signing certificate (`.pfx`/`.p12`) from a CA.
-2. Set the standard electron-builder environment variables before building:
+> **Why it matters:** Windows 11 **Smart App Control** (Windows Security →
+> App & browser control) *blocks unsigned executables entirely* — including
+> the unsigned `MartPOS.exe` this repo produces and the uninstaller-signing
+> step inside `npm run build` (it fails with `spawn UNKNOWN`). Signed builds
+> are required for Smart App Control and to avoid SmartScreen warnings on
+> customer machines.
+
+1. Obtain a code-signing certificate from a CA (Sectigo, DigiCert, SSL.com,
+   Certum, etc.):
+   - **OV certificate** (`.pfx`/`.p12` file) — cheaper, issues in days; builds
+     SmartScreen/Smart App Control reputation over time.
+   - **EV certificate** (hardware token, stored in Windows cert store) —
+     instant SmartScreen reputation; the token must be plugged in to sign.
+2. For a PFX file, set the standard electron-builder environment variables
+   before building:
    - `CSC_LINK` — path or base64 of the certificate file
    - `CSC_KEY_PASSWORD` — certificate password
    - (Windows-only alternates `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` also work)
-3. Run `npm run build`. With the variables set, `MartPOS-Setup-*.exe` and the app exe are signed; without them, an unsigned build is produced as before.
+3. For an EV token / cert already in the Windows certificate store, set:
+   - `WIN_CSC_NAME` — the certificate's subject name (e.g. `Your Company Name`)
+4. Run `npm run build`. With signing configured, `MartPOS-Setup-*.exe`,
+   `MartPOS-Portable-*.exe` and the app exe are signed; without it, an
+   unsigned build is produced as before.
 
 Never commit the certificate or its password to this repository.
+
+**Unsigned builds:** on machines without Smart App Control, unsigned builds
+still run (SmartScreen "More info → Run anyway"). If Smart App Control is On,
+only signed builds run — the dev path `npm run desktop` always works because
+the Electron binary itself is allowed.
 
 ### Automatic updates
 

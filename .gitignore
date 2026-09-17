@@ -54,6 +54,11 @@ data/session-secret.txt
 data/secrets.json
 data/pos.db.tmp
 
+# Code-signing material - never commit
+*.pfx
+*.p12
+*.cer
+
 # QA artifacts (test DBs, browser profile, secrets)
 qa/data*/
 qa/upd-feed/
