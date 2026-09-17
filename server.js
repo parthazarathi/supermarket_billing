@@ -2218,6 +2218,9 @@ app.post('/api/ai/chat', loginRequired, async (req, res) => {
     });
     res.json(result);
   } catch (error) {
+    if (error && error.code === 'busy') {
+      return res.status(409).json(jsonError(errMsg(error)));
+    }
     if (error && error.code === 'rate_limited') {
       return res.status(429).json(jsonError(errMsg(error)));
     }
@@ -2262,6 +2265,13 @@ app.post('/api/ai/config', requireRole('admin'), (req, res) => {
 app.get('/api/ai/audit', requireRole('admin'), (req, res) => {
   const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 100));
   res.json({ ok: true, rows: listAiAudit(limit) });
+});
+
+// Admin-only diagnostic: exercises the provider (no tools) and the tool
+// layer separately so configuration problems can be isolated safely.
+app.get('/api/ai/selftest', requireRole('admin'), async (req, res) => {
+  const result = await aiService.selfTest();
+  res.json({ ok: true, selftest: result });
 });
 
 // 404 handler

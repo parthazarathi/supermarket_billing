@@ -289,6 +289,48 @@ async function main() {
   const off = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
   check('AI-CHAT-007', 'offline -> graceful message', /internet/i.test(off.reply) && off.error === 'offline');
 
+  // Quota error -> accurate billing message, not 'busy'.
+  providerLib.setProvider({
+    configured: () => true,
+    generateResponse: async () => {
+      const e = new providerLib.AIProviderError('You have no credits remaining', { code: 'quota', status: 429 });
+      e.providerCode = 'insufficient_quota';
+      throw e;
+    }
+  });
+  const quota = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
+  check('AI-CHAT-008', 'quota error -> billing message not busy', quota.error === 'quota' && /quota|credits|billing/i.test(quota.reply));
+
+  // Concurrency: same user gets a 'busy' rejection; flag releases after.
+  providerLib.setProvider({
+    configured: () => true,
+    generateResponse: async () => {
+      await new Promise((r) => setTimeout(r, 120));
+      return { message: { role: 'assistant', content: 'done' } };
+    }
+  });
+  const slow = service.chat({ user: MANAGER, question: 'slow one', history: [] });
+  let busyErr = '';
+  try { await service.chat({ user: MANAGER, question: 'second', history: [] }); }
+  catch (e) { busyErr = e.code; }
+  check('AI-CHAT-009', 'concurrent same-user request -> busy', busyErr === 'busy');
+  const finished = await slow;
+  check('AI-CHAT-010', 'first request completes normally', finished.reply === 'done');
+  const after = await service.chat({ user: MANAGER, question: 'again', history: [] });
+  check('AI-CHAT-011', 'no stale busy lock after finish', after.reply === 'done');
+  // A failure path must also release the lock (no stuck service).
+  providerLib.setProvider({
+    configured: () => true,
+    generateResponse: async () => { throw new providerLib.AIProviderError('boom', { code: 'provider' }); }
+  });
+  await service.chat({ user: CASHIER, question: 'x', history: [] });
+  providerLib.setProvider({
+    configured: () => true,
+    generateResponse: async () => ({ message: { role: 'assistant', content: 'recovered' } })
+  });
+  const recovered = await service.chat({ user: CASHIER, question: 'y', history: [] });
+  check('AI-CHAT-012', 'failure releases lock - next request works', recovered.reply === 'recovered');
+
   // Audit log written for the interactions above.
   const auditRows = listAiAudit(10);
   check('AI-AUDIT-001', 'chat interactions audited', auditRows.length >= 3 && auditRows.every((x) => x.question && x.user_role));
