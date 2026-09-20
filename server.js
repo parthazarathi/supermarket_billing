@@ -13,9 +13,9 @@ const { seedItemsFromJson } = require('./lib/items');
 const { authenticate, listUsers, createUser, updateUserPassword, deleteUser, getUserById } = require('./lib/users');
 const { getSetting, getSettings, setSettings } = require('./lib/settings');
 const { listItems, getItemByCode, getItem, categories, saveItem, importItems, deleteItem } = require('./lib/items');
-const { listParties, getParty, saveParty, deleteParty, addPartyPayment, checkCreditLimit } = require('./lib/parties');
+const { listParties, getParty, listPartyBills, partyLedger, saveParty, deleteParty, addPartyPayment, checkCreditLimit, outstandingBreakdown } = require('./lib/parties');
 const { calculateCartTotals } = require('./lib/cart');
-const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice, updateInvoice, deleteInvoice } = require('./lib/invoices');
+const { completeSale, listInvoices, getInvoice, getInvoiceByNo, recordInvoicePayment, createSaleReturn, cancelInvoice, updateInvoice, deleteInvoice, invoiceProfit } = require('./lib/invoices');
 const { verifyBillPasscode } = require('./lib/passcode');
 const { completePurchase, listPurchases, getPurchase, updatePurchase, deletePurchase } = require('./lib/purchases');
 const { createPurchaseReturn, listPurchaseReturns } = require('./lib/purchaseReturns');
@@ -29,7 +29,7 @@ const reportLib = require('./lib/reports');
 const { dashboard, reports } = reportLib;
 const { generateInvoicePDF } = require('./lib/pdfGenerator');
 const { generateUPIQRCode, buildUPIDeeplink } = require('./lib/upi');
-const { sendBill, sendTestMessage, retryBill, normalizeWhatsAppNumber, whatsappStatus, latestStatusMap, attemptsFor, friendlyError, registerCloudOwner, loginCloudOwner, logoutCloudOwner, connectWhatsApp, disconnectWhatsApp, startWhatsAppWorker, stopWhatsAppWorker, refreshWhatsAppStatus } = require('./lib/whatsapp');
+const { sendBill, sendTestMessage, retryBill, normalizeWhatsAppNumber, whatsappStatus, latestStatusMap, attemptsFor, friendlyError, formatBillText, registerCloudOwner, loginCloudOwner, logoutCloudOwner, connectWhatsApp, disconnectWhatsApp, startWhatsAppWorker, stopWhatsAppWorker, refreshWhatsAppStatus } = require('./lib/whatsapp');
 const { status: driveStatus, connectOAuth, disconnect, backupDatabase, listBackups, prepareRestore, applyStagedRestore, restoreDatabase, testConnection: testDrive, tryAutoBackup, isBackupDue, DriveError, cleanupStaging } = require('./lib/driveSync');
 
 const { createLocalBackup, isLocalBackupDue, listLocalBackups, describeBackupFile, applyRestoreFile, listHistory, backupDir } = require('./lib/backup');
@@ -460,6 +460,19 @@ app.get('/api/parties', loginRequired, (req, res) => {
   res.json({ ok: true, parties: listParties(type) });
 });
 
+app.get('/api/parties/:id/bills', loginRequired, (req, res) => {
+  const partyId = parseInt(req.params.id, 10);
+  const party = Number.isNaN(partyId) ? null : getParty(partyId);
+  if (!party) {
+    return res.status(404).json(jsonError('Party not found'));
+  }
+  if (party.type === 'supplier' && (ROLE_LEVEL[currentUser(req).role] || 0) < ROLE_LEVEL.manager) {
+    return res.status(403).json(jsonError('Not allowed for this role'));
+  }
+  const includeProfit = (ROLE_LEVEL[currentUser(req).role] || 0) >= ROLE_LEVEL.manager;
+  res.json({ ok: true, party, bills: listPartyBills(party, includeProfit), ledger: partyLedger(party, includeProfit), outstanding: outstandingBreakdown(party) });
+});
+
 app.post('/api/parties', requireRole('manager'), (req, res) => {
   try {
     const party = saveParty(req.body);
@@ -561,6 +574,32 @@ app.post('/api/next-bill-no', loginRequired, (req, res) => {
 
   const billNo = `BILL-${dayPrefix}-${String(seq).padStart(4, '0')}`;
   res.json({ ok: true, bill_no: billNo });
+});
+
+// Preview the next invoice number for a POS tab label. Peeks the shared
+// number_sequences counter so tab numbers always continue from the sales
+// list; the number is only consumed when the sale is actually saved.
+app.get('/api/next-invoice-no', loginRequired, (req, res) => {
+  const today = new Date();
+  const dayPrefix = today.getFullYear().toString() +
+    String(today.getMonth() + 1).padStart(2, '0') +
+    String(today.getDate()).padStart(2, '0');
+  const key = `invoices:INV:${dayPrefix}`;
+  const row = execToObject('SELECT value FROM number_sequences WHERE key = ?', [key]);
+  let next = 1;
+  if (row && row.value !== undefined) {
+    next = (parseInt(row.value, 10) || 0) + 1;
+  } else {
+    const last = execToObject(
+      'SELECT invoice_no FROM invoices WHERE invoice_no LIKE ? ORDER BY invoice_no DESC LIMIT 1',
+      [`INV-${dayPrefix}-%`]
+    );
+    if (last) {
+      const n = parseInt(String(last.invoice_no).split('-').pop(), 10);
+      if (!isNaN(n)) next = n + 1;
+    }
+  }
+  res.json({ ok: true, bill_no: `INV-${dayPrefix}-${String(next).padStart(4, '0')}` });
 });
 
 app.post('/api/release-bill-no', loginRequired, (req, res) => {
@@ -861,6 +900,9 @@ app.post('/api/sale', loginRequired, async (req, res) => {
 
     state.items = {};
     state.billDiscount = 0;
+    state.partyId = null;
+    state.partyName = 'Walk-in Customer';
+    state.partyPhone = '';
 
     audit(req, 'sale', 'sales', invoice.invoice_no, `Sale completed: ${invoice.invoice_no} ₹${invoice.total}`);
 
@@ -983,12 +1025,31 @@ app.get('/api/invoices', loginRequired, (req, res) => {
   res.json({ ok: true, invoices: invoices });
 });
 
+// wa.me deep link for installs without the cloud gateway: opens WhatsApp
+// Web/app with the bill text addressed to the customer - cashier taps Send.
+app.get('/api/invoices/:id/whatsapp-link', loginRequired, (req, res) => {
+  const invoice = getInvoice(parseInt(req.params.id));
+  if (!invoice) {
+    return res.status(404).json(jsonError('Invoice not found'));
+  }
+  try {
+    const phone = normalizeWhatsAppNumber(req.query.phone || invoice.party_phone || '');
+    const text = formatBillText(invoice, phone);
+    res.json({ ok: true, link: `https://wa.me/${phone.slice(1)}?text=${encodeURIComponent(text)}` });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
 app.get('/api/invoices/:id', loginRequired, (req, res) => {
   const invoice = getInvoice(parseInt(req.params.id));
   if (!invoice) {
     return res.status(404).json(jsonError('Invoice not found'));
   }
   invoice.whatsapp_attempts = attemptsFor(invoice.id);
+  if ((ROLE_LEVEL[currentUser(req).role] || 0) >= ROLE_LEVEL.manager) {
+    Object.assign(invoice, invoiceProfit(invoice));
+  }
   res.json({ ok: true, invoice: invoice });
 });
 

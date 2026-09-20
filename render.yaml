@@ -1,0 +1,34 @@
+# Render blueprint - deploys the MartPOS WhatsApp gateway + free PostgreSQL.
+# Dashboard → New → Blueprint → point at this repo.
+services:
+  - type: web
+    name: martpos-gateway
+    runtime: node
+    rootDir: gateway
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: martpos-gateway-db
+          property: connectionString
+      - key: GATEWAY_PUBLIC_URL   # set after first deploy: https://martpos-gateway.onrender.com
+        sync: false
+      - key: GATEWAY_ENCRYPTION_KEY
+        generateValue: true
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_EMBEDDED_SIGNUP_CONFIG_ID
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        generateValue: true
+      - key: GATEWAY_TRUST_PROXY
+        value: "1"
+
+databases:
+  - name: martpos-gateway-db
+    plan: free

@@ -33,6 +33,15 @@ const state = {
   updateNotifiedFor: "",
   sidebarCollapsed: localStorage.getItem("sidebarCollapsed") === "true",
   partyFilter: "customer",
+  selectedParty: null,
+  partyLedgerType: localStorage.getItem("partyLedgerType") || "all",
+  partyLedgerCols: (() => {
+    try {
+      return JSON.parse(localStorage.getItem("partyLedgerCols")) || null;
+    } catch (e) {
+      return null;
+    }
+  })() || { ref: true, debit: true, credit: true, balance: true, profit: true, status: true },
   ai: null,
   salesFilter: "all",
   salesFrom: "",
@@ -154,6 +163,25 @@ function setStatus(msg, type = "") {
       if (seq === statusSeq) setStatus("");
     }, 6000);
   }
+}
+
+function showToast(msg, type = "ok") {
+  let host = document.getElementById("toastHost");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "toastHost";
+    host.className = "toast-host";
+    document.body.appendChild(host);
+  }
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  host.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 250);
+  }, 3500);
 }
 
 async function api(url, options = {}) {
@@ -523,8 +551,8 @@ function render() {
         if (state.tabs.length === 0) {
           addPosTab();
         } else {
-          render();
           await loadPosCart();
+          await refreshPosTabLabels();
         }
       });
     });
@@ -935,8 +963,8 @@ function renderPos(view) {
               <div class="customer-suggestions" id="phoneSuggestions"></div>
             </div>
             <label class="whatsapp-check-label">
-              <input type="checkbox" id="waCheck" ${state.sendWhatsapp ? "checked" : ""} ${state.whatsapp && state.whatsapp.cloud_url_set === false ? "disabled" : ""} />
-              Send bill on WhatsApp
+              <input type="checkbox" id="waCheck" ${state.sendWhatsapp ? "checked" : ""} />
+              Send bill on WhatsApp${state.whatsapp && state.whatsapp.cloud_url_set === false ? " <span class=\"muted\">(opens WhatsApp)</span>" : ""}
             </label>
           </div>
           
@@ -1314,7 +1342,7 @@ function renderPos(view) {
     const printBtn = document.getElementById('printBtn');
     if (printBtn) printBtn.textContent = `Print & Pay ₹ ${money(paid)}`;
   });
-  document.getElementById("payBtn").addEventListener("click", chargeBill);
+  document.getElementById("payBtn").addEventListener("click", () => chargeBill(false));
   document.getElementById("printBtn").addEventListener("click", printBill);
   document.getElementById("scanBtn").addEventListener("click", startScanner);
   
@@ -1458,13 +1486,25 @@ async function chargeBill(openPdf = false) {
         send_whatsapp: state.sendWhatsapp,
       },
     });
+    const wantsWhatsApp = state.sendWhatsapp || state.settings.whatsapp_auto_send === "1";
+    const waPhone = state.customerPhone || data.invoice.party_phone || "";
     applyCart(data);
     const wa = data.whatsapp;
     state.customerName = "";
     state.customerPhone = "";
     state.sendWhatsapp = false;
     state.paid = "";
-    if (wa && wa.provider && wa.provider !== "none") {
+    await refreshPosTabLabels();
+    if (wantsWhatsApp && waPhone && state.whatsapp && state.whatsapp.cloud_url_set === false) {
+      // No cloud gateway on this install - hand the bill to WhatsApp Web/app.
+      try {
+        const r = await api(`/api/invoices/${data.invoice.id}/whatsapp-link?phone=${encodeURIComponent(waPhone)}`);
+        window.open(r.link, "_blank");
+        setStatus(`Saved ${data.invoice.invoice_no} · WhatsApp opened — press Send`, "ok");
+      } catch (e) {
+        setStatus(`Saved ${data.invoice.invoice_no} — WhatsApp: ${e.message}`, "error");
+      }
+    } else if (wa && wa.provider && wa.provider !== "none") {
       // WhatsApp was requested - the sale is already saved either way; delivery
       // is asynchronous via the local queue. When the cashier explicitly asked
       // for the send, a queueing failure opens the retry dialog; with auto-send
@@ -1481,6 +1521,7 @@ async function chargeBill(openPdf = false) {
       const due = Math.max(0, Number(data.invoice.total) - Number(data.invoice.paid));
       setStatus(`Saved ${data.invoice.invoice_no}${due > 0 ? ` — ₹ ${money(due)} marked as credit (unpaid)` : ""}`, "ok");
     }
+    showToast(`Bill ${data.invoice.invoice_no} saved · ₹ ${money(data.invoice.total)}${openPdf ? " · Sent to print" : ""}`, "ok");
     if (openPdf) {
       if (window.ReceiptPrinter) {
         ReceiptPrinter.print(data.invoice);
@@ -1590,6 +1631,14 @@ function whatsappRetryModal(invoice, defaultPhone = "") {
     if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = "Sending…"; }
     msg.textContent = "Queueing…";
     try {
+      if (state.whatsapp && state.whatsapp.cloud_url_set === false) {
+        // No cloud gateway - open WhatsApp Web/app with the bill text.
+        const r = await api(`/api/invoices/${invoice.id}/whatsapp-link?phone=${encodeURIComponent(fd.phone)}`);
+        closeModal();
+        window.open(r.link, "_blank");
+        setStatus("WhatsApp opened — press Send to deliver the bill", "ok");
+        return;
+      }
       const r = await api(`/api/invoices/${invoice.id}/whatsapp`, { method: "POST", body: { phone: fd.phone } });
       const w = r.whatsapp || {};
       if (w.ok && (w.queued || w.status === "pending")) {
@@ -1844,6 +1893,7 @@ function renderItems(view) {
       if (!wasOpen) {
         menu.classList.add("open");
         btn.setAttribute("aria-expanded", "true");
+        positionRowMenu(btn, menu);
       }
     });
   });
@@ -2035,34 +2085,48 @@ function itemForm(item = {}) {
 function renderParties(view) {
   const filter = state.partyFilter || "customer";
   const filtered = state.parties.filter((p) => p.type === filter);
+  let selected = filtered.find((p) => String(p.id) === String(state.selectedParty));
+  if (!selected) selected = filtered[0] || null;
+  state.selectedParty = selected ? selected.id : null;
+  const totalOutstanding = filtered.reduce((sum, p) => sum + (Number(p.outstanding) || 0), 0);
+  const isSupplierTab = filter === "supplier";
+  const totalLabel = isSupplierTab
+    ? (totalOutstanding >= 0 ? "Total payable" : "Net advance")
+    : (totalOutstanding >= 0 ? "Total receivable" : "Net advance");
+  const totalCls = totalOutstanding === 0 ? "" : (isSupplierTab ? (totalOutstanding > 0 ? "negative" : "positive") : (totalOutstanding > 0 ? "positive" : "negative"));
   view.innerHTML = `
-    <div class="party-tabs" role="tablist" aria-label="Party types">
-      <button class="party-tab ${filter === "customer" ? "active" : ""}" data-type="customer" role="tab" aria-selected="${filter === "customer" ? "true" : "false"}">Customers</button>
-      <button class="party-tab ${filter === "supplier" ? "active" : ""}" data-type="supplier" role="tab" aria-selected="${filter === "supplier" ? "true" : "false"}">Suppliers</button>
+    <div class="parties-head">
+      <div class="party-tabs" role="tablist" aria-label="Party types">
+        <button class="party-tab ${filter === "customer" ? "active" : ""}" data-type="customer" role="tab" aria-selected="${filter === "customer" ? "true" : "false"}">Customers</button>
+        <button class="party-tab ${filter === "supplier" ? "active" : ""}" data-type="supplier" role="tab" aria-selected="${filter === "supplier" ? "true" : "false"}">Suppliers</button>
+      </div>
+      <div class="parties-head-right">
+        <div class="parties-total">
+          <span class="parties-total-label">${totalLabel}</span>
+          <span class="parties-total-value ${totalCls}">₹ ${money(Math.abs(totalOutstanding))}</span>
+          <span class="parties-total-sub">${filtered.length} ${filter === "supplier" ? "suppliers" : "customers"}</span>
+        </div>
+        ${can("manager") ? `<button class="btn" id="newParty">Add party</button>` : ""}
+      </div>
     </div>
-    ${can("manager") ? `<div class="toolbar"><button class="btn" id="newParty">Add party</button></div>` : ""}
-    <div class="card table-wrap">
-      <table class="data-table parties-list">
-        <thead><tr><th>Name</th><th>Phone</th><th class="num">Outstanding</th>${can("manager") ? `<th class="actions-col"></th>` : ""}</tr></thead>
-        <tbody>
+    <div class="parties-layout">
+      <div class="card party-list">
+        <div class="party-list-items">
           ${filtered
             .map(
-              (p) => `<tr>
-                <td>${esc(p.name)}</td><td>${esc(p.phone)}</td>
-                <td class="num outstanding ${p.outstanding > 0 ? 'positive' : p.outstanding < 0 ? 'negative' : ''}">₹ ${money(p.outstanding)}</td>
-                ${
-                  can("manager")
-                    ? `<td class="actions-col"><button class="btn ghost sm" data-edit="${p.id}">Edit</button>
-                       <button class="btn ghost sm" data-pay="${p.id}">Receive</button>
-                       <button class="btn danger sm" data-del="${p.id}">Delete</button></td>`
-                    : ""
-                }
-              </tr>`
+              (p) => `<button class="party-item ${selected && p.id === selected.id ? "active" : ""}" data-select="${p.id}">
+                <span class="party-item-info">
+                  <span class="party-item-name">${esc(p.name)}</span>
+                  <span class="party-item-sub">${esc(p.phone || "")}</span>
+                </span>
+                <span class="party-item-outstanding ${p.outstanding === 0 ? "" : (p.type === "supplier" ? (p.outstanding > 0 ? "negative" : "positive") : (p.outstanding > 0 ? "positive" : "negative"))}">${p.outstanding < 0 ? "−" : ""}₹ ${money(Math.abs(p.outstanding))}</span>
+              </button>`
             )
-            .join("") || `<tr><td colspan="${can("manager") ? 4 : 3}" class="empty-state-cell">No ${filter}s found</td></tr>`
+            .join("") || `<div class="empty-state-cell">No ${filter}s found</div>`
           }
-        </tbody>
-      </table>
+        </div>
+      </div>
+      <div class="card party-detail" id="partyDetail"></div>
     </div>`;
   view.querySelectorAll("[data-type]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -2071,23 +2135,217 @@ function renderParties(view) {
     });
   });
   document.getElementById("newParty")?.addEventListener("click", () => partyForm());
-  view.querySelectorAll("[data-edit]").forEach((btn) => {
-    btn.addEventListener("click", () => partyForm(state.parties.find((p) => String(p.id) === btn.dataset.edit)));
+  view.querySelectorAll("[data-select]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (String(state.selectedParty) === String(btn.dataset.select)) return;
+      state.selectedParty = btn.dataset.select;
+      renderView();
+    });
   });
-  view.querySelectorAll("[data-del]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+  const detail = document.getElementById("partyDetail");
+  if (selected) renderPartyDetail(detail, selected);
+  else detail.innerHTML = `<div class="party-detail-empty muted">No ${filter === "supplier" ? "supplier" : "customer"} selected</div>`;
+}
+
+async function renderPartyDetail(el, party) {
+  const isSupplier = party.type === "supplier";
+  if (isSupplier && !can("manager")) {
+    el.innerHTML = `<div class="party-detail-empty muted">Supplier bill details are only available to managers.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="party-detail-empty muted">Loading bills…</div>`;
+  try {
+    const data = await api(`/api/parties/${party.id}/bills`);
+    const bills = data.bills || [];
+    const ledgerAll = data.ledger || [];
+    const showProfit = !isSupplier && can("manager");
+    const canEditBills = can("manager") && state.settings.bill_passcode_set;
+    const cols = state.partyLedgerCols;
+    const typeFilter = state.partyLedgerType || "all";
+    const colDefs = [
+      ["ref", "Ref"],
+      ["debit", isSupplier ? "Paid" : "Billed"],
+      ["credit", isSupplier ? "Billed" : "Received"],
+      ["balance", "Balance"],
+      ...(showProfit ? [["profit", "Profit"]] : []),
+      ["status", "Status"]
+    ];
+    const hiddenCols = colDefs.filter(([k]) => cols[k] === false).map(([k]) => `hide-col-${k}`).join(" ");
+    // Running balance is computed oldest-first; display newest at the top.
+    const ledger = [...ledgerAll.filter((e) => typeFilter === "all" || e.kind === typeFilter)].reverse();
+    const rows = ledger.map((e) => {
+      const isBill = !!e.bill_id;
+      const cancelled = !isSupplier && e.status === "cancelled";
+      const profit = e.profit === undefined || e.profit === null ? null : Number(e.profit);
+      return `<tr class="${isBill ? "" : "party-ledger-txn"}">
+        <td>${e.date ? esc(fmtDateTime(e.date)) : "—"}</td>
+        <td>${esc(e.type)}</td>
+        <td data-col="ref">${esc(e.ref || "—")}</td>
+        <td class="num" data-col="debit">${e.debit ? `₹ ${money(e.debit)}` : "—"}</td>
+        <td class="num" data-col="credit">${e.credit ? `₹ ${money(e.credit)}` : "—"}</td>
+        <td class="num ledger-balance ${e.balance === 0 ? "" : (isSupplier ? (e.balance > 0 ? "negative" : "positive") : (e.balance > 0 ? "positive" : "negative"))}" data-col="balance">${e.balance < 0 ? "−" : ""}₹ ${money(Math.abs(e.balance))}</td>
+        ${showProfit ? `<td class="num ${profit === null ? "" : `profit-cell ${profit >= 0 ? "profit-positive" : "profit-negative"}`}" data-col="profit">${profit === null ? "" : `₹ ${money(profit)}`}</td>` : ""}
+        <td data-col="status">${isBill && e.status ? `<span class="badge badge-${esc(e.status)}">${esc(e.status)}</span>` : ""}</td>
+        <td class="actions-col party-bill-actions-col">${isBill ? `<div class="row-menu-wrap">
+          <button class="btn ghost sm icon-btn" data-menu="${e.bill_id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
+          <div class="row-menu" id="rmenu-party-${e.bill_id}" role="menu">
+            <button data-act="view" data-id="${e.bill_id}" role="menuitem">View</button>
+            ${canEditBills && (isSupplier || !cancelled) ? `<button data-act="edit" data-id="${e.bill_id}" role="menuitem">Edit</button>` : ""}
+          </div>
+        </div>` : ""}</td>
+      </tr>`;
+    }).join("");
+    const columnCount = 3 + colDefs.length;
+    const ob = data.outstanding || {};
+    const outstanding = Number(ob.outstanding ?? party.outstanding ?? 0);
+    const outLabel = outstanding < 0 ? "Advance" : isSupplier ? "Payable" : "Outstanding";
+    const outAmount = Math.abs(outstanding);
+    const outCls = outstanding === 0 ? "" : (isSupplier ? (outstanding > 0 ? "negative" : "positive") : (outstanding > 0 ? "positive" : "negative"));
+    const obParts = [
+      `<span>Opening balance <b>₹ ${money(ob.opening_balance || 0)}</b></span>`,
+      `<span>Pending bills <b>₹ ${money(ob.bills_due || 0)}</b></span>`
+    ];
+    if (ob.return_credit) obParts.push(`<span>Return credits <b>− ₹ ${money(ob.return_credit)}</b></span>`);
+    if (ob.standalone_paid) obParts.push(`<span>${isSupplier ? "Payments made" : "Receipts"} <b>− ₹ ${money(ob.standalone_paid)}</b></span>`);
+    obParts.push(`<span class="party-outstanding-total">${outLabel} <b>₹ ${money(outAmount)}</b></span>`);
+    const contact = [party.phone, party.email, party.gstin].filter(Boolean).join(" · ");
+    el.innerHTML = `
+      <div class="party-detail-head">
+        <div class="party-detail-info">
+          <h3>${esc(party.name)}</h3>
+          <div class="muted">${esc(contact) || (isSupplier ? "Supplier" : "Customer")}</div>
+        </div>
+        <div class="party-detail-outstanding ${outCls}">
+          <span class="party-out-label">${outLabel}</span>
+          <span class="party-out-value">₹ ${money(outAmount)}</span>
+        </div>
+        ${can("manager") ? `<div class="party-detail-actions">
+          <button class="btn ghost sm" data-detail-edit="${party.id}">Edit</button>
+          <button class="btn ghost sm" data-detail-pay="${party.id}">${isSupplier ? "Pay" : "Receive"}</button>
+          <button class="btn danger sm" data-detail-del="${party.id}">Delete</button>
+        </div>` : ""}
+      </div>
+      <div class="ledger-controls">
+        <p class="muted ledger-count">${ledger.length} ${ledger.length === 1 ? "entry" : "entries"}${typeFilter !== "all" ? " (filtered)" : ""}</p>
+        <select id="ledgerType" class="ledger-type-filter" aria-label="Filter entries">
+          <option value="all" ${typeFilter === "all" ? "selected" : ""}>All entries</option>
+          <option value="bill" ${typeFilter === "bill" ? "selected" : ""}>${isSupplier ? "Purchases" : "Sales"}</option>
+          <option value="payment" ${typeFilter === "payment" ? "selected" : ""}>${isSupplier ? "Payments" : "Receipts"}</option>
+          <option value="return" ${typeFilter === "return" ? "selected" : ""}>Returns</option>
+          <option value="refund" ${typeFilter === "refund" ? "selected" : ""}>Refunds</option>
+          <option value="cancelled" ${typeFilter === "cancelled" ? "selected" : ""}>Cancellations</option>
+        </select>
+        <div class="ledger-cols">
+          <button type="button" class="btn ghost sm" id="ledgerColsBtn">Columns</button>
+          <div class="ledger-cols-menu" id="ledgerColsMenu">
+            ${colDefs.map(([k, l]) => `<label class="ledger-col-opt"><input type="checkbox" data-col-toggle="${k}" ${cols[k] !== false ? "checked" : ""} /> ${esc(l)}</label>`).join("")}
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap party-detail-table">
+        <table class="data-table ledger-table ${hiddenCols}">
+          <thead><tr><th>Date</th><th>Entry</th><th data-col="ref">Ref</th><th class="num" data-col="debit">${isSupplier ? "Paid" : "Billed"}</th><th class="num" data-col="credit">${isSupplier ? "Billed" : "Received"}</th><th class="num" data-col="balance">Balance</th>${showProfit ? `<th class="num" data-col="profit">Profit</th>` : ""}<th data-col="status">Status</th><th class="actions-col party-bill-actions-col"></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="${columnCount}" class="empty-state-cell">No entries found</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="party-outstanding">${obParts.join("")}</div>`;
+    el.querySelector("#ledgerType")?.addEventListener("change", (e) => {
+      state.partyLedgerType = e.target.value;
+      localStorage.setItem("partyLedgerType", state.partyLedgerType);
+      renderPartyDetail(el, party);
+    });
+    el.querySelector("#ledgerColsBtn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      el.querySelector("#ledgerColsMenu")?.classList.toggle("open");
+    });
+    const ledgerTable = el.querySelector(".ledger-table");
+    el.querySelectorAll("[data-col-toggle]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        ledgerTable?.classList.toggle(`hide-col-${cb.dataset.colToggle}`, !cb.checked);
+        state.partyLedgerCols[cb.dataset.colToggle] = cb.checked;
+        localStorage.setItem("partyLedgerCols", JSON.stringify(state.partyLedgerCols));
+      });
+    });
+    el.querySelectorAll("[data-menu]").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const menu = document.getElementById(`rmenu-party-${btn.dataset.menu}`);
+        const wasOpen = menu.classList.contains("open");
+        closeRowMenus();
+        if (!wasOpen) {
+          menu.classList.add("open");
+          btn.setAttribute("aria-expanded", "true");
+          positionRowMenu(btn, menu);
+        }
+      });
+    });
+    el.querySelectorAll(".row-menu [data-act]").forEach((item) => {
+      item.addEventListener("click", async () => {
+        closeRowMenus();
+        try {
+          if (item.dataset.act === "view") {
+            if (isSupplier) await purchaseViewModal(item.dataset.id);
+            else await invoiceViewModal(item.dataset.id);
+          } else if (item.dataset.act === "edit") {
+            if (isSupplier) await openEditPurchase(item.dataset.id);
+            else await openEditBill(item.dataset.id);
+          }
+        } catch (err) {
+          setStatus(err.message, "error");
+        }
+      });
+    });
+    el.querySelector("[data-detail-edit]")?.addEventListener("click", () => partyForm(party));
+    el.querySelector("[data-detail-del]")?.addEventListener("click", async () => {
       if (!confirm("Delete this party?")) return;
-      await api(`/api/parties/${btn.dataset.del}`, { method: "DELETE" });
-      await loadParties();
+      try {
+        await api(`/api/parties/${party.id}`, { method: "DELETE" });
+        state.selectedParty = null;
+        await loadParties();
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
     });
-  });
-  view.querySelectorAll("[data-pay]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const amount = prompt("Amount received");
-      if (!amount) return;
-      await api(`/api/parties/${btn.dataset.pay}/payment`, { method: "POST", body: { amount, method: "Cash" } });
+    el.querySelector("[data-detail-pay]")?.addEventListener("click", () => partyPaymentModal(party));
+  } catch (err) {
+    el.innerHTML = `<div class="party-detail-empty">${esc(err.message)}</div>`;
+  }
+}
+
+function partyPaymentModal(party) {
+  const isSupplier = party.type === "supplier";
+  const outstanding = Number(party.outstanding) || 0;
+  openModal(`
+    <h3>${isSupplier ? "Pay" : "Receive from"} ${esc(party.name)}</h3>
+    <p class="muted">${outstanding < 0 ? `Advance balance: ₹ ${money(Math.abs(outstanding))} — no pending bills, payment adds to ${isSupplier ? "supplier" : "customer"} credit` : `${isSupplier ? "Payable" : "Outstanding"}: ₹ ${money(outstanding)} · Applied to pending bills (oldest first)`}</p>
+    <form id="partyPayForm" class="form-grid">
+      <label class="full">Amount
+        <input name="amount" type="number" min="0" step="0.01" placeholder="Amount" value="0" required autofocus />
+      </label>
+      <label>Method
+        <select name="method">${["Cash", "UPI", "Card", "Bank Transfer"].map((m) => `<option>${m}</option>`).join("")}</select>
+      </label>
+      <label>Note
+        <input name="note" placeholder="Optional note" />
+      </label>
+      <div class="full form-error" id="partyPayError"></div>
+    </form>`, "partyPayForm");
+  document.getElementById("partyPayForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target).entries());
+    const amount = Number(fd.amount);
+    if (!(amount > 0)) {
+      document.getElementById("partyPayError").textContent = "Enter a valid amount";
+      return;
+    }
+    try {
+      await api(`/api/parties/${party.id}/payment`, { method: "POST", body: { amount, method: fd.method, note: fd.note } });
+      closeModal();
+      setStatus(isSupplier ? "Payment recorded" : "Receipt recorded", "ok");
       await loadParties();
-    });
+    } catch (err) {
+      document.getElementById("partyPayError").textContent = err.message;
+    }
   });
 }
 
@@ -2240,6 +2498,7 @@ function renderSales(view) {
       if (!wasOpen) {
         menu.classList.add("open");
         btn.setAttribute("aria-expanded", "true");
+        positionRowMenu(btn, menu);
       }
     });
   });
@@ -2313,6 +2572,7 @@ async function invoiceViewModal(id) {
       <tr><td><b>Total</b></td><td><b>₹ ${money(inv.total)}</b></td></tr>
       <tr><td>Paid</td><td>₹ ${money(inv.paid)}${inv.payment_method ? ` (${esc(inv.payment_method)})` : ""}</td></tr>
       ${due > 0 ? `<tr><td><b>Due</b></td><td><b class="due-amount">₹ ${money(due)}</b></td></tr>` : ""}
+      ${inv.profit !== undefined ? `<tr><td><b>Profit</b></td><td><b class="${inv.profit >= 0 ? "profit-positive-text" : "profit-negative-text"}">₹ ${money(inv.profit)} (${money(inv.margin)}%)</b></td></tr>` : ""}
     </tbody></table></div>`);
 }
 
@@ -2383,164 +2643,236 @@ async function openEditBill(id) {
   const passcode = await askPasscode(`Edit bill ${inv.invoice_no}`);
   if (passcode === null) return;
 
-  if (!state.parties.length) await loadParties(false);
   if (!state.items.length) await loadItems(false);
-  const customers = (state.parties || []).filter((p) => p.type !== "supplier");
-
-  const lines = (inv.items || []).map((it) => ({
-    code: it.code,
-    name: it.name,
-    item_id: it.item_id,
-    quantity: Number(it.quantity),
-    price: Number(it.price),
-    discount: Number(it.discount) || 0,
-    gst_percent: Number(it.gst_percent) || 0
-  }));
-
+  const catalog = new Map((state.items || []).map((item) => [String(item.code), item]));
+  const lines = (inv.items || []).map((it) => {
+    const item = catalog.get(String(it.code));
+    return {
+      code: it.code,
+      name: it.name,
+      item_id: it.item_id,
+      quantity: Number(it.quantity),
+      price: Number(it.price),
+      discount: Number(it.discount) || 0,
+      gst_percent: Number(it.gst_percent) || 0,
+      purchase_price: Number(it.purchase_price) || 0,
+      mrp: Number(item?.mrp || item?.sale_price || it.price) || 0
+    };
+  });
   const methods = ["Cash", "UPI", "Card"];
   if (inv.payment_method && !methods.includes(inv.payment_method)) methods.push(inv.payment_method);
-
-  const lineTotal = (l) => Math.max(0, l.quantity * l.price - l.discount) * (1 + l.gst_percent / 100);
+  let paymentMethod = inv.payment_method || "Cash";
+  let searchMatches = [];
 
   openModal(
-    `<form id="editBillForm">
-      <h3>Edit ${esc(inv.invoice_no)} <span class="muted fs-13">${esc(fmtD(inv.created_at))}</span></h3>
-      <div class="form-grid">
-        <label>Customer
-          <select name="party_id">
-            <option value="">Walk-in / manual</option>
-            ${customers.map((p) => `<option value="${p.id}" ${Number(inv.party_id) === Number(p.id) ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
-          </select>
-        </label>
-        <label>Customer name
-          <input name="party_name" value="${esc(inv.party_name || "")}" />
-        </label>
-        <label>Phone
-          <input name="party_phone" value="${esc(inv.party_phone || "")}" />
-        </label>
+    `<form id="editBillForm" class="edit-pos-form">
+      <div class="edit-pos-header">
+        <div><h3>Edit ${esc(inv.invoice_no)}</h3><p class="muted">${esc(fmtD(inv.created_at))} · Update items, customer and payment details</p></div>
       </div>
-      <div class="table-wrap my-10">
-        <table>
-          <thead><tr><th>Item</th><th class="w-90">Qty</th><th class="w-100">Price</th><th class="w-90">Disc</th><th class="num">Line total</th><th class="actions-col"></th></tr></thead>
-          <tbody id="ebLines"></tbody>
-        </table>
+      <div class="edit-pos-layout">
+        <section class="edit-pos-left">
+          <div class="pos-topbar">
+            <div class="search-section">
+              <div class="search-row">
+                <div class="search-input-wrap">
+                  <input id="ebSearch" type="text" placeholder="Scan barcode or type product name" autocomplete="off" aria-label="Product search" />
+                  <div id="ebSugs" class="search-suggestions" role="listbox"></div>
+                </div>
+                <button type="button" class="btn" id="ebAddBtn">Add</button>
+              </div>
+            </div>
+          </div>
+          <div class="items-table-section">
+            <div class="section-header">
+              <h3>Order Items</h3>
+              <div class="section-actions">
+                <span class="item-count" id="ebItemCount"></span>
+                <button type="button" class="btn ghost sm" id="ebClear">Clear</button>
+              </div>
+            </div>
+            <div class="items-table-container">
+              <table class="items-table" aria-label="Bill items">
+                <thead><tr><th>Item</th><th class="num pos-cost">Purchase</th><th class="num pos-cost">MRP</th><th class="num">Sale Price</th><th class="num qty-col">Qty</th><th class="num">Discount</th><th class="num">Total</th><th class="actions-col"></th></tr></thead>
+                <tbody id="ebLines"></tbody>
+              </table>
+            </div>
+            <div class="bill-profit-note"><span>Bill Profit</span><strong id="ebProfit">₹ 0.00 (0.00%)</strong></div>
+          </div>
+        </section>
+        <aside class="edit-pos-right">
+          <div class="customer-summary-section">
+            <div class="summary-header"><h3>Customer</h3></div>
+            <input type="hidden" name="party_id" value="${inv.party_id || ""}" />
+            <div class="customer-field"><label for="ebPartyName">Customer name</label><input name="party_name" id="ebPartyName" value="${esc(inv.party_name || "")}" /></div>
+            <div class="customer-field"><label for="ebPartyPhone">Mobile number</label><input name="party_phone" id="ebPartyPhone" value="${esc(inv.party_phone || "")}" /></div>
+          </div>
+          <div class="order-summary">
+            <div class="summary-header"><h3>Order Summary</h3></div>
+            <div class="cart-totals">
+              <div class="total-row"><span>Subtotal</span><span id="ebSubtotal">₹ 0.00</span></div>
+              <div class="total-row discount-row"><span>Discount</span><span><input name="bill_discount" id="ebDisc" type="number" min="0" step="any" value="${money(inv.discount)}" class="discount-input" /></span></div>
+              <div class="total-row" id="ebCgstRow"><span>CGST</span><span id="ebCgst">₹ 0.00</span></div>
+              <div class="total-row" id="ebSgstRow"><span>SGST</span><span id="ebSgst">₹ 0.00</span></div>
+              <div class="total-row" id="ebIgstRow"><span>IGST</span><span id="ebIgst">₹ 0.00</span></div>
+              <div class="total-row grand-total"><span>Grand Total</span><span id="ebGrandTotal">₹ 0.00</span></div>
+            </div>
+            <div class="payment-section">
+              <input type="hidden" name="payment_method" id="ebPaymentMethod" value="${esc(paymentMethod)}" />
+              <div class="payment-methods" role="group" aria-label="Payment methods">${methods.map((m) => `<button type="button" class="payment-method ${paymentMethod === m ? "active" : ""}" data-eb-pay="${esc(m)}" aria-pressed="${paymentMethod === m}">${esc(m)}</button>`).join("")}</div>
+              <div class="payment-details">
+                <div class="payment-row"><label for="ebPaid">Amount Received</label><input name="paid" id="ebPaid" type="number" min="0" step="any" value="${money(inv.paid)}" /></div>
+                <div class="payment-row"><label>Change to Return</label><span class="change-amount" id="ebChange">₹ 0.00</span></div>
+                <div class="payment-row credit-due" id="ebDueRow"><label>Credit (unpaid)</label><span class="due-amount" id="ebDue">₹ 0.00</span></div>
+              </div>
+            </div>
+            <div class="customer-field edit-reason"><label for="ebReason">Reason (optional)</label><input name="reason" id="ebReason" placeholder="e.g. wrong quantity" /></div>
+          </div>
+        </aside>
       </div>
-      <input id="ebSearch" type="text" placeholder="Search item by code or name to add…" autocomplete="off" />
-      <div id="ebSugs" class="table-wrap"></div>
-      <div class="form-grid mt-12">
-        <label>Bill discount
-          <input name="bill_discount" id="ebDisc" type="number" min="0" step="any" value="${money(inv.discount)}" />
-        </label>
-        <label>Payment method
-          <select name="payment_method">
-            ${methods.map((m) => `<option value="${m}" ${inv.payment_method === m ? "selected" : ""}>${m}</option>`).join("")}
-          </select>
-        </label>
-        <label>Paid amount
-          <input name="paid" type="number" min="0" step="any" value="${money(inv.paid)}" />
-        </label>
-        <label>Reason (optional)
-          <input name="reason" placeholder="e.g. wrong quantity" />
-        </label>
-      </div>
-      <div id="ebTotals" class="muted mt-8"></div>
     </form>`,
     "editBillForm",
-    "modal-wide"
+    "modal-pos"
   );
 
   const tbody = document.getElementById("ebLines");
-  const recalc = () => {
-    const sub = lines.reduce((a, l) => a + Math.max(0, l.quantity * l.price - l.discount), 0);
-    const taxRaw = lines.reduce((a, l) => a + Math.max(0, l.quantity * l.price - l.discount) * l.gst_percent / 100, 0);
-    const disc = Math.max(0, parseFloat(document.getElementById("ebDisc").value) || 0);
-    const after = Math.max(0, sub - disc);
-    const tax = sub > 0 && disc > 0 ? taxRaw * (after / sub) : taxRaw;
-    document.getElementById("ebTotals").textContent =
-      `Subtotal ₹ ${money(sub)} · Discount ₹ ${money(disc)} · Tax ₹ ${money(tax)} · Total ₹ ${money(after + tax)}`;
-  };
-
-  const renderLines = () => {
-    tbody.innerHTML = lines
-      .map(
-        (l, idx) => `<tr>
-          <td>${esc(l.name)} <span class="muted">${esc(l.code)}</span></td>
-          <td><input data-eb="q" data-idx="${idx}" type="number" min="0" step="any" value="${l.quantity}" class="w-80" /></td>
-          <td><input data-eb="p" data-idx="${idx}" type="number" min="0" step="any" value="${l.price}" class="w-90" /></td>
-          <td><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${l.discount}" class="w-80" /></td>
-          <td class="num">₹ ${money(lineTotal(l))}</td>
-          <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-eb-del="${idx}" title="Remove line">✕</button></td>
-        </tr>`
-      )
-      .join("");
-    tbody.querySelectorAll("[data-eb]").forEach((inp) => {
-      inp.addEventListener("input", () => {
-        const l = lines[Number(inp.dataset.idx)];
-        if (!l) return;
-        const v = parseFloat(inp.value) || 0;
-        if (inp.dataset.eb === "q") l.quantity = v;
-        if (inp.dataset.eb === "p") l.price = v;
-        if (inp.dataset.eb === "d") l.discount = v;
-        const row = inp.closest("tr");
-        row.children[4].textContent = `₹ ${money(lineTotal(l))}`;
-        recalc();
-      });
-    });
-    tbody.querySelectorAll("[data-eb-del]").forEach((b) => {
-      b.addEventListener("click", () => {
-        lines.splice(Number(b.dataset.ebDel), 1);
-        renderLines();
-        recalc();
-      });
-    });
-  };
-  renderLines();
-  recalc();
-
-  document.getElementById("ebDisc").addEventListener("input", recalc);
-
   const searchInput = document.getElementById("ebSearch");
-  const sugs = document.getElementById("ebSugs");
-  searchInput.addEventListener("input", () => {
-    const q = searchInput.value.trim().toLowerCase();
-    if (!q) {
-      sugs.innerHTML = "";
-      return;
-    }
-    const matches = (state.items || [])
-      .filter((it) => String(it.code).toLowerCase().includes(q) || String(it.name).toLowerCase().includes(q))
-      .slice(0, 8);
-    sugs.innerHTML = matches
-      .map((it) => `<div class="toolbar"><button type="button" class="btn ghost sm" data-eb-add="${esc(it.code)}">${esc(it.code)} · ${esc(it.name)} · ₹ ${money(it.sale_price)}</button></div>`)
-      .join("");
-    sugs.querySelectorAll("[data-eb-add]").forEach((b) => {
-      b.addEventListener("click", () => {
-        const it = (state.items || []).find((x) => String(x.code) === b.dataset.ebAdd);
-        if (!it) return;
-        const existing = lines.find((l) => l.code === it.code);
-        if (existing) {
-          existing.quantity += 1;
-        } else {
-          lines.push({
-            code: it.code,
-            name: it.name,
-            item_id: it.id,
-            quantity: 1,
-            price: Number(it.sale_price) || 0,
-            discount: 0,
-            gst_percent: Number(it.gst_percent) || 0
-          });
-        }
-        searchInput.value = "";
-        sugs.innerHTML = "";
+  const suggestions = document.getElementById("ebSugs");
+  const effectiveGst = (line) => Number(line.gst_percent) > 0 ? Number(line.gst_percent) : Number(state.settings.default_gst) || 0;
+  const taxable = (line) => Math.max(0, Number(line.quantity) * Number(line.price) - Number(line.discount));
+  const lineTotal = (line) => taxable(line) * (1 + effectiveGst(line) / 100);
+  const totals = () => {
+    const subtotal = lines.reduce((sum, line) => sum + taxable(line), 0);
+    const taxRaw = lines.reduce((sum, line) => sum + taxable(line) * effectiveGst(line) / 100, 0);
+    const discount = Math.max(0, parseFloat(document.getElementById("ebDisc").value) || 0);
+    const afterDiscount = Math.max(0, subtotal - discount);
+    const tax = Math.round((subtotal > 0 && discount > 0 ? taxRaw * afterDiscount / subtotal : taxRaw) * 100) / 100;
+    const total = Math.round((afterDiscount + tax) * 100) / 100;
+    const cogs = lines.reduce((sum, line) => sum + Number(line.quantity) * Number(line.purchase_price || 0), 0);
+    const profit = Math.round((afterDiscount - cogs) * 100) / 100;
+    const paid = Math.max(0, parseFloat(document.getElementById("ebPaid").value) || 0);
+    const half = Math.round(tax / 2 * 100) / 100;
+    const inter = state.settings.gst_type === "inter";
+    return { subtotal, discount, tax, total, profit, paid, cgst: inter ? 0 : half, sgst: inter ? 0 : Math.round((tax - half) * 100) / 100, igst: inter ? tax : 0 };
+  };
+  const updateSummary = () => {
+    const value = totals();
+    document.getElementById("ebSubtotal").textContent = `₹ ${money(value.subtotal)}`;
+    document.getElementById("ebCgst").textContent = `₹ ${money(value.cgst)}`;
+    document.getElementById("ebSgst").textContent = `₹ ${money(value.sgst)}`;
+    document.getElementById("ebIgst").textContent = `₹ ${money(value.igst)}`;
+    document.getElementById("ebCgstRow").classList.toggle("hidden", state.settings.gst_type === "inter");
+    document.getElementById("ebSgstRow").classList.toggle("hidden", state.settings.gst_type === "inter");
+    document.getElementById("ebIgstRow").classList.toggle("hidden", state.settings.gst_type !== "inter");
+    document.getElementById("ebGrandTotal").textContent = `₹ ${money(value.total)}`;
+    document.getElementById("ebChange").textContent = `₹ ${money(Math.max(0, value.paid - value.total))}`;
+    document.getElementById("ebDue").textContent = `₹ ${money(Math.max(0, value.total - value.paid))}`;
+    document.getElementById("ebDueRow").classList.toggle("hidden", value.paid >= value.total - 0.009);
+    const margin = value.subtotal - value.discount > 0 ? value.profit * 100 / (value.subtotal - value.discount) : 0;
+    document.getElementById("ebProfit").textContent = `₹ ${money(value.profit)} (${money(margin)}%)`;
+  };
+  const renderLines = () => {
+    tbody.innerHTML = lines.map((line, idx) => `<tr>
+      <td><strong>${esc(line.name)}</strong><span class="suggestion-meta">${esc(line.code)}</span></td>
+      <td class="num pos-cost">₹ ${money(line.purchase_price)}</td>
+      <td class="num pos-cost">₹ ${money(line.mrp || line.price)}</td>
+      <td class="num"><input data-eb="p" data-idx="${idx}" type="number" min="0" step="any" value="${line.price}" class="discount-input sm" aria-label="Sale price for ${esc(line.name)}" /></td>
+      <td class="num qty-col"><div class="qty-control-inline"><button type="button" class="qty-btn sm icon-btn" data-eb-minus="${idx}">−</button><input data-eb="q" data-idx="${idx}" type="number" min="0.001" step="any" value="${line.quantity}" class="qty-input sm" aria-label="Quantity for ${esc(line.name)}" /><button type="button" class="qty-btn sm icon-btn" data-eb-plus="${idx}">+</button></div></td>
+      <td class="num"><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${line.discount}" class="discount-input sm" aria-label="Discount for ${esc(line.name)}" /></td>
+      <td class="num" data-eb-total>₹ ${money(lineTotal(line))}</td>
+      <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-eb-del="${idx}" title="Remove item">✕</button></td>
+    </tr>`).join("") || `<tr><td colspan="8" class="empty-cart">Search products to add them to the bill</td></tr>`;
+    document.getElementById("ebItemCount").textContent = `${lines.length} item${lines.length === 1 ? "" : "s"}`;
+    document.getElementById("ebClear").disabled = lines.length === 0;
+    tbody.querySelectorAll("[data-eb]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const line = lines[Number(input.dataset.idx)];
+        if (!line) return;
+        const value = parseFloat(input.value) || 0;
+        if (input.dataset.eb === "q") line.quantity = value;
+        if (input.dataset.eb === "p") line.price = value;
+        if (input.dataset.eb === "d") line.discount = value;
+        input.closest("tr").querySelector("[data-eb-total]").textContent = `₹ ${money(lineTotal(line))}`;
+        updateSummary();
+      });
+    });
+    tbody.querySelectorAll("[data-eb-minus], [data-eb-plus]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const idx = Number(button.dataset.ebMinus ?? button.dataset.ebPlus);
+        const line = lines[idx];
+        if (!line) return;
+        line.quantity = Math.max(0.001, Number(line.quantity) + (button.hasAttribute("data-eb-plus") ? 1 : -1));
         renderLines();
-        recalc();
+        updateSummary();
+      });
+    });
+    tbody.querySelectorAll("[data-eb-del]").forEach((button) => {
+      button.addEventListener("click", () => {
+        lines.splice(Number(button.dataset.ebDel), 1);
+        renderLines();
+        updateSummary();
+      });
+    });
+  };
+  const addItem = (item) => {
+    const existing = lines.find((line) => String(line.code) === String(item.code));
+    if (existing) existing.quantity += 1;
+    else lines.push({ code: item.code, name: item.name, item_id: item.id, quantity: 1, price: Number(item.sale_price) || 0, discount: 0, gst_percent: Number(item.gst_percent) || 0, purchase_price: Number(item.purchase_price) || 0, mrp: Number(item.mrp || item.sale_price) || 0 });
+    searchInput.value = "";
+    suggestions.innerHTML = "";
+    suggestions.classList.remove("open");
+    searchMatches = [];
+    renderLines();
+    updateSummary();
+    searchInput.focus();
+  };
+  const showSuggestions = () => {
+    const query = searchInput.value.trim().toLowerCase();
+    searchMatches = query ? (state.items || []).filter((item) => String(item.code).toLowerCase().includes(query) || String(item.name).toLowerCase().includes(query)).slice(0, 8) : [];
+    suggestions.innerHTML = searchMatches.map((item, idx) => `<div class="search-suggestion" role="option" data-eb-suggestion="${idx}"><span class="suggestion-name">${esc(item.name)}</span><span class="suggestion-meta">${esc(item.code)} · ₹ ${money(item.sale_price)} · Stock: ${money(item.stock)}</span></div>`).join("");
+    suggestions.classList.toggle("open", searchMatches.length > 0);
+    suggestions.querySelectorAll("[data-eb-suggestion]").forEach((option) => option.addEventListener("click", () => addItem(searchMatches[Number(option.dataset.ebSuggestion)])));
+  };
+
+  renderLines();
+  updateSummary();
+  searchInput.addEventListener("input", showSuggestions);
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const exact = (state.items || []).find((item) => String(item.code).toLowerCase() === searchInput.value.trim().toLowerCase());
+      if (exact || searchMatches[0]) addItem(exact || searchMatches[0]);
+    }
+  });
+  document.getElementById("ebAddBtn").addEventListener("click", () => {
+    const query = searchInput.value.trim().toLowerCase();
+    const exact = (state.items || []).find((item) => String(item.code).toLowerCase() === query || String(item.name).toLowerCase() === query);
+    if (exact || searchMatches[0]) addItem(exact || searchMatches[0]);
+  });
+  document.getElementById("ebClear").addEventListener("click", () => {
+    if (!lines.length || !confirm("Clear all items from this bill?")) return;
+    lines.splice(0);
+    renderLines();
+    updateSummary();
+  });
+  document.getElementById("ebDisc").addEventListener("input", updateSummary);
+  document.getElementById("ebPaid").addEventListener("input", updateSummary);
+
+  document.querySelectorAll("[data-eb-pay]").forEach((button) => {
+    button.addEventListener("click", () => {
+      paymentMethod = button.dataset.ebPay;
+      document.getElementById("ebPaymentMethod").value = paymentMethod;
+      document.querySelectorAll("[data-eb-pay]").forEach((option) => {
+        const active = option === button;
+        option.classList.toggle("active", active);
+        option.setAttribute("aria-pressed", String(active));
       });
     });
   });
 
   document.getElementById("editBillForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!lines.length) return setStatus("Bill must have at least one item", "error");
+    if (lines.some((line) => !(Number(line.quantity) > 0) || Number(line.price) < 0)) return setStatus("Enter valid item quantities and prices", "error");
     const fd = new FormData(e.target);
     try {
       await api(`/api/invoices/${id}`, {
@@ -2548,7 +2880,7 @@ async function openEditBill(id) {
         body: {
           passcode,
           reason: fd.get("reason") || "",
-          items: lines.map((l) => ({ code: l.code, quantity: l.quantity, price: l.price, discount: l.discount })),
+          items: lines.map((line) => ({ code: line.code, quantity: line.quantity, price: line.price, discount: line.discount })),
           bill_discount: parseFloat(fd.get("bill_discount")) || 0,
           party_id: fd.get("party_id") || null,
           party_name: fd.get("party_name") || "",
@@ -2651,6 +2983,7 @@ function renderPurchases(view) {
       if (!wasOpen) {
         menu.classList.add("open");
         btn.setAttribute("aria-expanded", "true");
+        positionRowMenu(btn, menu);
       }
     });
   });
@@ -2714,9 +3047,7 @@ async function openEditPurchase(id) {
   const passcode = await askPasscode(`Edit purchase ${pur.purchase_no}`);
   if (passcode === null) return;
 
-  if (!state.parties.length) await loadParties(false);
   if (!state.items.length) await loadItems(false);
-  const suppliers = (state.parties || []).filter((p) => p.type === "supplier");
 
   const lines = (pur.items || []).map((it) => ({
     code: it.code,
@@ -2732,12 +3063,13 @@ async function openEditPurchase(id) {
   openModal(
     `<form id="editPurForm">
       <h3>Edit ${esc(pur.purchase_no)} <span class="muted fs-13">${esc(fmtD(pur.created_at))}</span></h3>
+      <input type="hidden" name="party_id" value="${pur.party_id || ""}" />
       <div class="form-grid">
-        <label>Supplier
-          <select name="party_id">
-            <option value="">Walk-in / none</option>
-            ${suppliers.map((s) => `<option value="${s.id}" ${Number(pur.party_id) === Number(s.id) ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
-          </select>
+        <label>Supplier name
+          <input name="party_name" placeholder="Supplier name" value="${esc(pur.party_name || "")}" />
+        </label>
+        <label>Mobile number
+          <input name="party_phone" placeholder="Mobile number" value="${esc(pur.party_phone || "")}" />
         </label>
       </div>
       <div class="table-wrap my-10">
@@ -2846,6 +3178,8 @@ async function openEditPurchase(id) {
         body: {
           passcode,
           party_id: fd.party_id || null,
+          party_name: fd.party_name || "",
+          party_phone: fd.party_phone || "",
           paid: fd.paid,
           reason: fd.reason || "",
           items: lines.map((l) => ({ code: l.code, item_id: l.item_id, quantity: l.quantity, price: l.price, gst_percent: l.gst_percent }))
@@ -3250,7 +3584,7 @@ function waStatusCardHtml() {
   const tplLabel = tplStatus === "APPROVED" ? "Ready" : (["REJECTED", "PAUSED", "DISABLED"].includes(tplStatus) ? "Needs attention" : "Approval pending");
   if (!w.cloud_url_set) {
     return `<h3>WhatsApp Billing</h3>
-      <p class="help">WhatsApp billing is not available on this installation. Please contact MartPOS support.</p>`;
+      <p class="help">Automatic WhatsApp delivery is not configured on this installation. You can still send bills manually: enter the customer's mobile number on the bill, tick "Send bill on WhatsApp", and WhatsApp opens with the bill text ready — press Send. For automatic delivery, contact MartPOS support.</p>`;
   }
   if (!linked) {
     return `<h3>WhatsApp Billing</h3>
@@ -3504,12 +3838,12 @@ function renderSettings(view) {
         <button type="button" class="settings-nav-btn active" data-sec="general">Shop &amp; Billing</button>
         <button type="button" class="settings-nav-btn" data-sec="appearance">Appearance</button>
         <button type="button" class="settings-nav-btn" data-sec="receipt">Receipt</button>
+        <button type="button" class="settings-nav-btn" data-sec="users">Users</button>
         <button type="button" class="settings-nav-btn" data-sec="whatsapp">WhatsApp</button>
         <button type="button" class="settings-nav-btn" data-sec="drive">Google Drive</button>
         <button type="button" class="settings-nav-btn" data-sec="backup">Local Backup</button>
-        <button type="button" class="settings-nav-btn" data-sec="updates">Updates</button>
         ${window.MartAI ? `<button type="button" class="settings-nav-btn" data-sec="ai">AI Manager</button>` : ""}
-        <button type="button" class="settings-nav-btn" data-sec="users">Users</button>
+        <button type="button" class="settings-nav-btn" data-sec="updates">Updates</button>
         <button type="button" class="settings-nav-btn" data-sec="about">About</button>
       </nav>
       <div class="settings-content settings-layout">
@@ -3567,37 +3901,6 @@ function renderSettings(view) {
         </label>
         <p class="help full">Local backups are kept in the app data folder (last 30 kept). They protect you even when the internet or Google Drive is unavailable.</p>
 
-        <h3 class="full">Receipt printer</h3>
-        <label>Paper width
-          <select name="receipt_printer_width">
-            <option value="58" ${s.receipt_printer_width === "58" ? "selected" : ""}>58 mm (2 inch)</option>
-            <option value="80" ${!s.receipt_printer_width || s.receipt_printer_width === "80" ? "selected" : ""}>80 mm (3 inch)</option>
-            <option value="100" ${s.receipt_printer_width === "100" ? "selected" : ""}>100 mm (4 inch)</option>
-          </select>
-        </label>
-        <label>Font size
-          <input name="receipt_font_size" type="number" min="9" max="18" step="1" value="${esc(s.receipt_font_size || "12")}" />
-        </label>
-        <label>Font family
-          <select name="receipt_font_family">
-            ${ReceiptPrinter.FONT_FAMILIES.map(([v, l]) =>
-              `<option value="${esc(v)}" ${(s.receipt_font_family || "'Courier New', monospace") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
-          </select>
-        </label>
-        <label class="full">Header lines (address, phone etc.)
-          <textarea name="receipt_header" rows="2" placeholder="e.g. 12, Main Road, Chennai · Ph: 98765 43210">${esc(s.receipt_header || "")}</textarea>
-        </label>
-        <label class="full">Footer text
-          <textarea name="receipt_footer" rows="2" placeholder="Thank you! Visit again">${esc(s.receipt_footer || "Thank you! Visit again")}</textarea>
-        </label>
-        <div class="full receipt-toggles">
-          ${[["receipt_show_gstin", "Show GSTIN"], ["receipt_show_customer", "Show customer"], ["receipt_show_cashier", "Show cashier"], ["receipt_show_mrp", "Show MRP vs price"], ["receipt_show_hsn", "Show HSN codes"], ["receipt_show_savings", "Show 'You saved'"], ["receipt_show_gst_breakup", "Show GST breakup"]]
-            .map(([k, l]) => {
-              const on = s[k] === undefined ? ["receipt_show_gstin", "receipt_show_customer", "receipt_show_cashier", "receipt_show_savings", "receipt_show_gst_breakup"].includes(k) : s[k] === "1";
-              return `<label class="check"><input type="checkbox" name="${k}" ${on ? "checked" : ""} /> ${l}</label>`;
-            }).join("")}
-        </div>
-
         <h3 class="full">Bill security</h3>
         <label>Bill edit/delete passcode
           <input name="bill_passcode" type="password" inputmode="numeric" pattern="\\d{4,8}" placeholder="${s.bill_passcode_set ? "Passcode is set — enter new to change" : "4-8 digits"}" autocomplete="new-password" />
@@ -3633,12 +3936,65 @@ function renderSettings(view) {
         </div>
       </div>
       <div class="card" data-sec="receipt">
-        <h3>Receipt preview</h3>
-        <p class="help">Live preview of the thermal receipt template. Changes update instantly; save to keep them.</p>
+        <h3>Receipt</h3>
+        <div class="form-grid">
+          <label>Paper width
+            <select form="setForm" name="receipt_printer_width">
+              <option value="58" ${s.receipt_printer_width === "58" ? "selected" : ""}>58 mm (2 inch)</option>
+              <option value="80" ${!s.receipt_printer_width || s.receipt_printer_width === "80" ? "selected" : ""}>80 mm (3 inch)</option>
+              <option value="100" ${s.receipt_printer_width === "100" ? "selected" : ""}>100 mm (4 inch)</option>
+            </select>
+          </label>
+          <label>Font size
+            <input form="setForm" name="receipt_font_size" type="number" min="9" max="18" step="1" value="${esc(s.receipt_font_size || "12")}" />
+          </label>
+          <label>Font family
+            <select form="setForm" name="receipt_font_family">
+              ${ReceiptPrinter.FONT_FAMILIES.map(([v, l]) =>
+                `<option value="${esc(v)}" ${(s.receipt_font_family || "'Courier New', monospace") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="full">Header lines (address, phone etc.)
+            <textarea form="setForm" name="receipt_header" rows="2" placeholder="e.g. 12, Main Road, Chennai · Ph: 98765 43210">${esc(s.receipt_header || "")}</textarea>
+          </label>
+          <label class="full">Footer text
+            <textarea form="setForm" name="receipt_footer" rows="2" placeholder="Thank you! Visit again">${esc(s.receipt_footer || "Thank you! Visit again")}</textarea>
+          </label>
+        </div>
+        <div class="receipt-toggles">
+          ${[["receipt_show_gstin", "Show GSTIN"], ["receipt_show_customer", "Show customer"], ["receipt_show_cashier", "Show cashier"], ["receipt_show_mrp", "Show MRP vs price"], ["receipt_show_hsn", "Show HSN codes"], ["receipt_show_savings", "Show 'You saved'"], ["receipt_show_gst_breakup", "Show GST breakup"]]
+            .map(([k, l]) => {
+              const on = s[k] === undefined ? ["receipt_show_gstin", "receipt_show_customer", "receipt_show_cashier", "receipt_show_savings", "receipt_show_gst_breakup"].includes(k) : s[k] === "1";
+              return `<label class="check"><input form="setForm" type="checkbox" name="${k}" ${on ? "checked" : ""} /> ${l}</label>`;
+            }).join("")}
+        </div>
+        <p class="help mt-12">Live preview — changes update instantly; save to keep them.</p>
         <div id="receiptPreview"></div>
         <div class="toolbar mt-8">
           <button class="btn ghost" id="rcTestPrint">Print test receipt</button>
         </div>
+      </div>
+      <div class="card" data-sec="users">
+        <h3>Users</h3>
+        <form id="userForm" class="toolbar">
+          <input name="username" placeholder="Username" />
+          <input name="password" type="password" placeholder="Password" />
+          <select name="role"><option>cashier</option><option>manager</option><option>admin</option></select>
+          <button class="btn">Add user</button>
+        </form>
+        <div class="table-wrap">
+          <table class="data-table"><thead><tr><th>User</th><th>Role</th><th class="actions-col"></th></tr></thead>
+          <tbody>${(state.users || [])
+            .map(
+              (u) =>
+                `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td class="actions-col"><button class="btn danger sm" data-delu="${u.id}">Delete</button></td></tr>`
+            )
+            .join("") || `<tr><td colspan="3" class="empty-state-cell">No users yet.</td></tr>`}</tbody></table>
+        </div>
+        <form id="pwForm" class="toolbar">
+          <input name="password" type="password" placeholder="Change my password" />
+          <button class="btn ghost">Update password</button>
+        </form>
       </div>
       <div class="card" id="waCard" data-sec="whatsapp">
         ${waStatusCardHtml()}
@@ -3675,35 +4031,13 @@ function renderSettings(view) {
         </div>
         <div id="localBackupMsg" class="help"></div>
       </div>
-      <div class="card" id="updCardBody" data-sec="updates"></div>
       ${window.MartAI ? `<div data-sec="ai">${window.MartAI.aiSettingsCardHtml()}</div>` : ""}
+      <div class="card" id="updCardBody" data-sec="updates"></div>
       <div class="card" data-sec="about">
         <h3>About</h3>
         <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
         <p class="muted">Data folder: <code>${esc((state.about || {}).data_dir || "")}</code></p>
         <p class="muted">Last cloud backup: ${esc(d.last_backup_at ? fmtDateTime(d.last_backup_at) : "never")}</p>
-      </div>
-      <div class="card" data-sec="users">
-        <h3>Users</h3>
-        <form id="userForm" class="toolbar">
-          <input name="username" placeholder="Username" />
-          <input name="password" type="password" placeholder="Password" />
-          <select name="role"><option>cashier</option><option>manager</option><option>admin</option></select>
-          <button class="btn">Add user</button>
-        </form>
-        <div class="table-wrap">
-          <table class="data-table"><thead><tr><th>User</th><th>Role</th><th class="actions-col"></th></tr></thead>
-          <tbody>${(state.users || [])
-            .map(
-              (u) =>
-                `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td class="actions-col"><button class="btn danger sm" data-delu="${u.id}">Delete</button></td></tr>`
-            )
-            .join("") || `<tr><td colspan="3" class="empty-state-cell">No users yet.</td></tr>`}</tbody></table>
-        </div>
-        <form id="pwForm" class="toolbar">
-          <input name="password" type="password" placeholder="Change my password" />
-          <button class="btn ghost">Update password</button>
-        </form>
       </div>
       </div>
     </div>`;
@@ -3727,16 +4061,17 @@ function renderSettings(view) {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target).entries());
     // Checkbox fields only appear when checked - persist explicit 1/0
+    // (receipt_* inputs live in the Receipt card but stay associated via form=)
     for (const k of Object.keys(ReceiptPrinter.DEFAULTS).filter((x) => x.startsWith("show_"))) {
-      fd[`receipt_${k}`] = e.target.querySelector(`[name="receipt_${k}"]`).checked ? "1" : "0";
+      fd[`receipt_${k}`] = e.target.elements[`receipt_${k}`].checked ? "1" : "0";
     }
-    fd.drive_auto_backup = e.target.querySelector('[name="drive_auto_backup"]').checked ? "1" : "0";
-    fd.whatsapp_auto_send = e.target.querySelector('[name="whatsapp_auto_send"]').checked ? "1" : "0";
-    fd.local_backup_enabled = e.target.querySelector('[name="local_backup_enabled"]').checked ? "1" : "0";
+    fd.drive_auto_backup = e.target.elements["drive_auto_backup"].checked ? "1" : "0";
+    fd.whatsapp_auto_send = e.target.elements["whatsapp_auto_send"].checked ? "1" : "0";
+    fd.local_backup_enabled = e.target.elements["local_backup_enabled"].checked ? "1" : "0";
     if (!fd.bill_passcode || !String(fd.bill_passcode).trim()) {
       delete fd.bill_passcode;
     }
-    const clearBox = e.target.querySelector('[name="bill_passcode_clear"]');
+    const clearBox = e.target.elements["bill_passcode_clear"];
     if (clearBox && clearBox.checked) {
       fd.bill_passcode_clear = "1";
     } else {
@@ -3754,6 +4089,11 @@ function renderSettings(view) {
   });
   document.getElementById("setForm").addEventListener("input", refreshReceiptPreview);
   document.getElementById("setForm").addEventListener("change", refreshReceiptPreview);
+  const receiptCard = view.querySelector('.card[data-sec="receipt"]');
+  if (receiptCard) {
+    receiptCard.addEventListener("input", refreshReceiptPreview);
+    receiptCard.addEventListener("change", refreshReceiptPreview);
+  }
   document.getElementById("rcTestPrint").addEventListener("click", () => {
     const form = document.getElementById("setForm");
     ReceiptPrinter.print(ReceiptPrinter.sampleInvoice(), receiptCfgFromForm(form));
@@ -4071,13 +4411,35 @@ if (window.Quagga) {
 // Close any open row-action menu on outside click or Escape
 function closeRowMenus() {
   document.querySelectorAll(".row-menu.open").forEach((m) => m.classList.remove("open"));
+  document.querySelectorAll(".actions-col.menu-open").forEach((c) => c.classList.remove("menu-open"));
   document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach((b) => b.setAttribute("aria-expanded", "false"));
+}
+function positionRowMenu(btn, menu) {
+  menu.closest(".actions-col")?.classList.add("menu-open");
+  const r = btn.getBoundingClientRect();
+  const mh = menu.offsetHeight;
+  const mw = menu.offsetWidth;
+  let top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 8) {
+    top = Math.max(8, r.top - mh - 4);
+  }
+  let left = r.right - mw;
+  if (left < 8) left = 8;
+  if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
 }
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".row-menu-wrap")) {
     closeRowMenus();
   }
+  const colsMenu = document.getElementById("ledgerColsMenu");
+  if (colsMenu && colsMenu.classList.contains("open") && !e.target.closest(".ledger-cols")) {
+    colsMenu.classList.remove("open");
+  }
 });
+window.addEventListener("scroll", closeRowMenus, true);
+window.addEventListener("resize", closeRowMenus);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     const scannerOpen = document.getElementById("scannerModal")?.getAttribute("aria-hidden") === "false";
@@ -4127,37 +4489,40 @@ async function loadPos() {
   await Promise.all([loadItems(false), loadParties(false)]);
   await loadPosCart();
   state.held = (await api("/api/cart/held")).held;
-  const tab = state.tabs.find((t) => t.posId === state.posId);
-  if (tab) {
-    if (tab.label.startsWith("BILL-")) {
-      await api("/api/reserve-bill-no", { method: "POST", body: { bill_no: tab.label } });
-    } else if (tab.label.startsWith("Bill ")) {
-      const data = await api("/api/next-bill-no", { method: "POST", body: {} });
-      tab.label = data.bill_no;
-      localStorage.setItem("posTabs", JSON.stringify(state.tabs));
-      render();
-    }
-  }
+  await refreshPosTabLabels();
+}
+
+// Tab labels preview upcoming invoice numbers: the first open tab shows the
+// real next number and each extra tab continues the sequence. The number is
+// only consumed when a bill is actually saved.
+async function refreshPosTabLabels() {
+  try {
+    const data = await api("/api/next-invoice-no");
+    const match = String(data.bill_no || "").match(/^(.*-)(\d+)$/);
+    if (!match) return;
+    const [, prefix, digits] = match;
+    const base = parseInt(digits, 10);
+    state.tabs.forEach((t, i) => {
+      t.label = `${prefix}${String(base + i).padStart(digits.length, "0")}`;
+    });
+    localStorage.setItem("posTabs", JSON.stringify(state.tabs));
+    render();
+  } catch (e) { /* keep existing labels */ }
 }
 
 async function loadPosCart() {
   const data = await api("/cart");
   applyCart(data);
-  const tab = state.tabs.find((t) => t.posId === state.posId);
-  if (tab && tab.label.startsWith("BILL-")) {
-    await api("/api/reserve-bill-no", { method: "POST", body: { bill_no: tab.label } });
-  }
 }
 
 async function addPosTab() {
-  const { bill_no } = await api("/api/next-bill-no", { method: "POST", body: {} });
+  const { bill_no } = await api("/api/next-invoice-no");
   const newPosId = (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
   state.tabs.push({ posId: newPosId, label: bill_no });
   state.posId = newPosId;
   localStorage.setItem("posId", state.posId);
-  localStorage.setItem("posTabs", JSON.stringify(state.tabs));
-  render();
   await loadPosCart();
+  await refreshPosTabLabels();
 }
 async function loadParties(rerender = true) {
   state.parties = (await api("/api/parties")).parties;
