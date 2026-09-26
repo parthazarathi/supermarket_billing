@@ -160,7 +160,7 @@ function throwsMsg(name, fn, substr) {
   const zeroItem = saveItem({ code: 'TST-ZERO', name: 'ZeroStock', purchase_price: 10, sale_price: 20, mrp: 25, stock: 0 });
   ok('item stock 0 allowed', !!zeroItem.id);
   throwsMsg('item bad sale price', () => saveItem({ code: 'TST2', name: 'T2', purchase_price: 10, sale_price: 'abc' }), 'Sale price must be greater than 0');
-  throwsMsg('item bad gst', () => saveItem({ code: 'TST3', name: 'T3', purchase_price: 10, sale_price: 20, gst_percent: 150 }), 'Invalid GST percent');
+  throwsMsg('item bad gst', () => saveItem({ code: 'TST3', name: 'T3', purchase_price: 10, sale_price: 20, gst_percent: 150 }), 'GST percent must be one of');
   deleteItem(zeroItem.id);
   throwsMsg('delete item with history', () => deleteItem(item.id), 'transaction history');
 

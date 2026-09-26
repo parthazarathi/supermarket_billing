@@ -728,6 +728,12 @@ app.post('/update_item', loginRequired, (req, res) => {
     if (qty <= 0) {
       delete cart[code];
     } else {
+      // Same stock cap as add_to_cart - direct qty edits must not exceed stock.
+      const product = cart[code].item_id ? getItem(cart[code].item_id) : getItemByCode(code);
+      const stock = product ? parseFloat(product.stock) : null;
+      if (isFinite(stock) && stock >= 0 && qty > stock + 1e-9) {
+        return res.status(400).json(jsonError('Insufficient stock'));
+      }
       cart[code].quantity = qty;
     }
   }
@@ -789,6 +795,9 @@ app.post('/api/cart/party', loginRequired, (req, res) => {
     const party = getParty(parseInt(party_id));
     if (!party) {
       return res.status(404).json(jsonError('Party not found'));
+    }
+    if (party.type !== 'customer') {
+      return res.status(400).json(jsonError('Only a customer can be attached to a bill'));
     }
     cartState.partyId = party.id;
     cartState.partyName = party.name;
@@ -1364,6 +1373,18 @@ app.post('/api/settings', requireRole('admin'), (req, res) => {
       updates.whatsapp_number = v === '' ? '' : normalizeWhatsAppNumber(v);
     }
 
+    const GST_SLABS = [0, 0.25, 3, 5, 12, 18, 28];
+    if (updates.default_gst !== undefined) {
+      const gst = parseFloat(updates.default_gst);
+      if (!isFinite(gst) || !GST_SLABS.includes(gst)) {
+        return res.status(400).json(jsonError('Default GST must be one of 0, 0.25, 3, 5, 12, 18, 28'));
+      }
+      updates.default_gst = String(gst);
+    }
+    if (updates.gst_type !== undefined &&
+        !['intra', 'inter'].includes(String(updates.gst_type))) {
+      return res.status(400).json(jsonError('Invalid GST type'));
+    }
     if (updates.drive_backup_interval !== undefined &&
         !['6h', 'daily', 'on_exit'].includes(String(updates.drive_backup_interval))) {
       return res.status(400).json(jsonError('Invalid backup frequency'));
@@ -1569,8 +1590,13 @@ app.put('/api/users/:id/password', loginRequired, (req, res) => {
     if (user.role !== 'admin' && user.id !== targetUserId) {
       return res.status(403).json(jsonError('Not allowed'));
     }
-    
-    updateUserPassword(targetUserId, req.body.password);
+
+    const newPassword = String(req.body.password || '');
+    if (newPassword.length < 4) {
+      return res.status(400).json(jsonError('Password must be at least 4 characters'));
+    }
+
+    updateUserPassword(targetUserId, newPassword);
     audit(req, 'password_change', 'users', targetUserId, `Password changed for user id ${targetUserId}`);
     
     // If user changed their own password, reset must_change_password setting
