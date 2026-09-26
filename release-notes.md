@@ -1,3 +1,5 @@
+- Update settings: "Check automatically" and "Download updates automatically" toggles now sit on one line
+- Users section: proper spacing between the users table and the change-password row
 - Fixed the update "What's new" notes showing raw HTML tags
 - Walk-in sales now file under the "Walk-in Customer" account - bills without a selected customer stay grouped, and older walk-in bills are adopted automatically
 - Customer history: removed the separate "Paid at billing" row - the billed amount and received amount show on one line; payments received later still appear as receipt entries
