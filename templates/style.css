@@ -960,6 +960,7 @@ select {
   gap: 0.429rem;
 }
 .form-grid label.hidden { display: none; }
+.form-grid [hidden] { display: none !important; }
 .form-grid input,
 .form-grid select,
 .form-grid textarea { width: 100%; }

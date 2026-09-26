@@ -1,6 +1,6 @@
 // Unit tests for the AI Store Manager: tool outputs against a seeded test
 // database, permission enforcement, input security, the chat loop with a
-// fake provider, and provider error mapping. No real OpenAI calls are made.
+// fake provider, and provider error mapping. No real Gemini calls are made.
 const path = require('path');
 const fs = require('fs');
 
@@ -211,10 +211,10 @@ async function main() {
   check('AI-PROMPT-005', 'prompt says read-only', /read.only/i.test(sp));
 
   // ---------- provider (mocked fetch) ----------
-  const OpenAIProvider = providerLib.OpenAIProvider;
-  const p = new OpenAIProvider({ key: 'sk-test-1234567890abcdef' });
+  const GeminiProvider = providerLib.GeminiProvider;
+  const p = new GeminiProvider({ key: 'AIza-test-1234567890abcdef' });
   check('AI-PROV-001', 'provider configured with key', p.configured() === true);
-  const pNoKey = new OpenAIProvider({ key: '' });
+  const pNoKey = new GeminiProvider({ key: '' });
   check('AI-PROV-002', 'empty key = not configured', pNoKey.configured() === false);
   await (async () => {
     let threwLocal = false;
@@ -228,24 +228,107 @@ async function main() {
     captured = { url, opts };
     return {
       ok: true,
-      json: async () => ({ choices: [{ message: { role: 'assistant', content: 'ok' } }], usage: { total_tokens: 10 } })
+      json: async () => ({ candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }], usageMetadata: { totalTokenCount: 10 } })
     };
   };
-  const r = await p.generateResponse({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], tools: tools.toolSpecs() });
-  check('AI-PROV-004', 'provider hits OpenAI endpoint', captured.url === 'https://api.openai.com/v1/chat/completions');
-  check('AI-PROV-005', 'api key sent as bearer only', captured.opts.headers.authorization === 'Bearer sk-test-1234567890abcdef');
-  check('AI-PROV-006', 'tool specs forwarded to provider', JSON.parse(captured.opts.body).tools.length === tools.toolSpecs().length);
+  const r = await p.generateResponse({
+    model: 'gemini-2.5-flash',
+    messages: [
+      { role: 'system', content: 'You are the assistant.' },
+      { role: 'user', content: 'hi' }
+    ],
+    tools: tools.toolSpecs()
+  });
+  const sentBody = JSON.parse(captured.opts.body);
+  check('AI-PROV-004', 'provider hits Gemini endpoint', captured.url === 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+  check('AI-PROV-005', 'api key sent via x-goog-api-key only', captured.opts.headers['x-goog-api-key'] === 'AIza-test-1234567890abcdef' && !captured.opts.headers.authorization);
+  const fdecls = sentBody.tools[0].function_declarations;
+  check('AI-PROV-006', 'tools converted to function_declarations', fdecls.length === tools.toolSpecs().length && fdecls[0].parameters.type === 'OBJECT');
   check('AI-PROV-007', 'response normalized', r.message.content === 'ok');
+  check('AI-PROV-008', 'system message moved to system_instruction', sentBody.system_instruction.parts[0].text === 'You are the assistant.' && sentBody.contents.length === 1);
 
-  globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) });
+  // Gemini functionCall response -> OpenAI-style tool_calls
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { role: 'model', parts: [
+        { text: 'Let me check.' },
+        { functionCall: { name: 'get_today_sales', args: {} } }
+      ] } }]
+    })
+  });
+  const rtc = await p.generateResponse({ messages: [{ role: 'user', content: 'sales?' }] });
+  check('AI-PROV-009', 'functionCall becomes tool_calls', rtc.message.tool_calls.length === 1 && rtc.message.tool_calls[0].function.name === 'get_today_sales' && rtc.message.tool_calls[0].function.arguments === '{}');
+
+  // tool result message -> functionResponse user turn
+  globalThis.fetch = async (url, opts) => { captured = { url, opts }; return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'done' }] } }] }) }; };
+  await p.generateResponse({
+    messages: [
+      { role: 'user', content: 'sales?' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', function: { name: 'get_today_sales', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', name: 'get_today_sales', content: '{"total_sales":860}' }
+    ]
+  });
+  const gbody = JSON.parse(captured.opts.body);
+  const frTurn = gbody.contents[gbody.contents.length - 1];
+  const modelTurn = gbody.contents[1];
+  check('AI-PROV-010', 'assistant tool_calls become model functionCall parts', modelTurn.role === 'model' && modelTurn.parts[0].functionCall.name === 'get_today_sales');
+  check('AI-PROV-011', 'tool result becomes functionResponse', frTurn.role === 'user' && frTurn.parts[0].functionResponse.name === 'get_today_sales' && frTurn.parts[0].functionResponse.response.total_sales === 860);
+
+  globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({ error: { message: 'bad key', status: 'PERMISSION_DENIED' } }) });
   let code = '';
   try { await p.generateResponse({ messages: [] }); } catch (e) { code = e.code; }
-  check('AI-PROV-008', '401 maps to auth error', code === 'auth');
-  globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND api.openai.com'); };
+  check('AI-PROV-012', '403 maps to auth error', code === 'auth');
+  globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => ({ error: { message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }) });
   code = '';
   try { await p.generateResponse({ messages: [] }); } catch (e) { code = e.code; }
-  check('AI-PROV-009', 'network failure maps to offline', code === 'offline');
+  check('AI-PROV-013', 'RESOURCE_EXHAUSTED maps to quota', code === 'quota');
+  globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({ error: { message: 'models/x is not found', status: 'NOT_FOUND' } }) });
+  code = '';
+  try { await p.generateResponse({ messages: [] }); } catch (e) { code = e.code; }
+  check('AI-PROV-014', '404 maps to model error', code === 'model');
+  globalThis.fetch = async () => { throw new Error('getaddrinfo ENOTFOUND generativelanguage.googleapis.com'); };
+  code = '';
+  try { await p.generateResponse({ messages: [] }); } catch (e) { code = e.code; }
+  check('AI-PROV-015', 'network failure maps to offline', code === 'offline');
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ candidates: [] }) });
+  code = '';
+  try { await p.generateResponse({ messages: [] }); } catch (e) { code = e.code; }
+  check('AI-PROV-016', 'empty candidates maps to provider error', code === 'provider');
+
+  // status(): model exists / missing / unreachable - never throws.
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ name: 'models/gemini-2.5-flash' }) });
+  const gsOk = await p.status('gemini-2.5-flash');
+  check('AI-PROV-017', 'status reachable + model found', gsOk.reachable === true && gsOk.model_available === true);
+  globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) });
+  const gsMiss = await p.status('gemini-old');
+  check('AI-PROV-018', 'status reports missing model', gsMiss.reachable === true && gsMiss.model_available === false);
+  globalThis.fetch = async () => { throw new Error('down'); };
+  const gsDown = await p.status('gemini-2.5-flash');
+  check('AI-PROV-019', 'unreachable never throws', gsDown.reachable === false);
   globalThis.fetch = realFetch;
+
+  // ---------- google identity gate ----------
+  // Chat must refuse until a Google identity is connected.
+  const preGate = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
+  check('AI-GA-001', 'chat blocked before Google sign-in', preGate.needs_google === true && /google/i.test(preGate.reply));
+
+  // Link a test identity the way signIn() does after id_token verification.
+  require('../lib/settings').setSettings({
+    ai_google_sub: 'google-sub-test-1',
+    ai_google_email: 'shopadmin@example.com',
+    ai_google_name: 'Shop Admin',
+    ai_google_connected_at: new Date().toISOString(),
+    ai_google_last_login: new Date().toISOString()
+  });
+  const ident = require('../lib/ai/googleAuth').identity();
+  check('AI-GA-002', 'identity stored as connected', ident.connected === true && ident.sub === 'google-sub-test-1');
+  const stG = service.aiStatus();
+  check('AI-GA-003', 'status exposes identity not secrets', stG.google.connected === true && stG.google.email === 'shopadmin@example.com' && !/sub-test/.test(JSON.stringify(stG.google)));
+  check('AI-GA-004', 'signin_available false without credentials file', require('../lib/ai/googleAuth').signInAvailable() === false);
+  process.env.GOOGLE_CLIENT_ID = 'test.apps.googleusercontent.com';
+  check('AI-GA-005', 'env client id enables sign-in', require('../lib/ai/googleAuth').signInAvailable() === true);
+  delete process.env.GOOGLE_CLIENT_ID;
 
   // ---------- chat service loop (fake provider) ----------
   let calls = 0;
@@ -299,7 +382,7 @@ async function main() {
     }
   });
   const quota = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
-  check('AI-CHAT-008', 'quota error -> billing message not busy', quota.error === 'quota' && /quota|credits|billing/i.test(quota.reply));
+  check('AI-CHAT-008', 'quota error -> usage-limit message not busy', quota.error === 'quota' && /usage limit|quota/i.test(quota.reply));
 
   // Concurrency: same user gets a 'busy' rejection; flag releases after.
   providerLib.setProvider({
@@ -346,16 +429,47 @@ async function main() {
 
   // Config flow: key stored via secrets, never returned.
   // Restore a real provider first - the summary test left a fake installed.
-  providerLib.setProvider(new providerLib.OpenAIProvider());
+  providerLib.setProvider(new providerLib.GeminiProvider());
   const { getSecret } = require('../lib/secrets');
-  const st = service.configureAi({ apiKey: 'sk-live-abcdef1234567890', model: 'gpt-4o-mini', enabled: true });
+  const st = service.configureAi({ apiKey: 'AIza-live-abcdef1234567890', model: 'gemini-2.5-flash', enabled: true });
   check('AI-CONF-001', 'config reports key set', st.configured === true && st.key_set === true);
-  check('AI-CONF-002', 'key stored in secrets store not settings', getSecret('openai_api_key') === 'sk-live-abcdef1234567890');
-  check('AI-CONF-003', 'status never returns the key', !/sk-live/.test(JSON.stringify(service.aiStatus())));
+  check('AI-CONF-002', 'key stored in secrets store not settings', getSecret('gemini_api_key') === 'AIza-live-abcdef1234567890');
+  check('AI-CONF-003', 'status never returns the key', !/AIza-live/.test(JSON.stringify(service.aiStatus())));
   const bad = (() => { try { service.configureAi({ apiKey: 'x' }); return false; } catch (e) { return true; } })();
   check('AI-CONF-004', 'invalid key rejected', bad);
   service.configureAi({ apiKey: '' });
-  check('AI-CONF-005', 'empty key clears the secret', getSecret('openai_api_key') === '');
+  check('AI-CONF-005', 'empty key clears the secret', getSecret('gemini_api_key') === '');
+
+  // ---------- live status + selftest (mocked Gemini) ----------
+  service.configureAi({ apiKey: 'AIza-live-abcdef1234567890' }); // key present for live checks
+  const realFetch2 = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes(':generateContent')) {
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }) };
+    }
+    return { ok: true, json: async () => ({ name: 'models/gemini-2.5-flash' }) };
+  };
+  const live = await service.aiStatusLive();
+  check('AI-GEM-001', 'live status reports gemini reachable + model present', live.provider === 'gemini' && live.reachable === true && live.model_available === true);
+  const st2 = await service.selfTest();
+  check('AI-GEM-002', 'selftest reports gemini + probe ok', st2.provider === 'gemini' && st2.provider_ok === true);
+  check('AI-GEM-003', 'selftest tools still pass', st2.tool_ok === true);
+
+  globalThis.fetch = async () => { throw new Error('ENOTFOUND'); };
+  const stDown = await service.selfTest();
+  check('AI-GEM-004', 'selftest reports offline without throwing', stDown.provider_ok === false && stDown.provider_error.code === 'offline');
+  const offChat = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
+  check('AI-GEM-005', 'gemini offline chat mentions internet, pos fine', /internet/i.test(offChat.reply) && offChat.error === 'offline');
+  globalThis.fetch = realFetch2;
+
+  // ---------- disconnect ----------
+  const ga = require('../lib/ai/googleAuth');
+  const dc = ga.disconnect();
+  check('AI-GA-006', 'disconnect clears identity', dc.connected === false && ga.identity().connected === false);
+  const postDc = await service.chat({ user: ADMIN, question: 'sales?', history: [] });
+  check('AI-GA-007', 'chat blocked after disconnect', postDc.needs_google === true);
+  const stAfter = service.aiStatus();
+  check('AI-GA-008', 'status reports not connected after disconnect', stAfter.google.connected === false);
 
   console.log(`\n${results.length - failures}/${results.length} checks passed`);
   process.exit(failures ? 1 : 0);

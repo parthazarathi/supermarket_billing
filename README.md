@@ -189,6 +189,27 @@ npm run build:server-installer  # dist\MartPOS-Server-Setup-<version>.exe (Inno 
 - **Reports:** sales, purchases, expenses, simple P&L (sales − cost of goods − expenses − returns)
 - **Users:** admin, manager, cashier
 - **UPI QR** from your UPI ID in Settings
+- **AI Store Manager:** ask business questions in plain English/Tamil ("today's sales", "low stock products", "which items to reorder") — read-only, powered by Google Gemini
+
+## AI Store Manager (Gemini)
+
+An optional assistant that answers questions about your store — sales, stock, credit, purchases, expenses — using the real POS database through a fixed set of read-only tools. It can never change data, run SQL, or reach the database directly.
+
+It uses **Google Gemini** (default model `gemini-2.5-flash`, free tier available). Customers authenticate with **Google Sign-In** — an OAuth loopback flow verifies the account identity via `id_token` (no email typed in a box, no Google tokens persisted). Customers never see or enter a Gemini API key; the credential stays backend-only and supports two modes:
+
+- **Platform-managed** — `GEMINI_API_KEY` set on the backend by the POS provider/operator.
+- **Managed** — a credential stored in the encrypted secrets store via the internal config API (`POST /api/ai/config {api_key}`); never returned to the frontend.
+
+Requires internet. Needs a Google OAuth "Desktop app" client — either `credentials.json` in the data folder (same file Google Drive backup uses) or `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars.
+
+**Setup:**
+
+1. Ensure a Gemini credential is provisioned on the backend (platform env or managed key).
+2. Settings → **AI Store Manager** → **Sign in with Google** → finish in the browser.
+3. **Test AI** should report *Google: your@email · Gemini reply OK*.
+4. Staff open the **AI** view from the sidebar and ask questions.
+
+If the key is missing, invalid, out of quota, or the machine is offline, the chat says so and billing, inventory, printing and reports keep working normally — the AI is an add-on, never a dependency.
 
 ## Backups (local + Google Drive)
 
@@ -296,6 +317,8 @@ npm run lint
 | `PORT` | POS | local web port (default 5000) |
 | `MARTPOS_CLOUD_URL` | POS | gateway base URL — deployment/build-operator config baked into packaged builds via `build:platform-config`, or set at runtime in server mode (https; localhost http only in dev/test) |
 | `MARTPOS_SECRET_KEY` | POS | base64 32-byte key for secret storage when DPAPI is unavailable |
+| `GEMINI_API_KEY` | POS | AI Store Manager key — prefer Settings → AI Store Manager (encrypted store) |
+| `GEMINI_MODEL` | POS | AI model override (default `gemini-2.5-flash`) |
 | `DATABASE_URL` | gateway | PostgreSQL connection string |
 | `GATEWAY_PUBLIC_URL` | gateway | public HTTPS origin (onboarding links, webhook docs) |
 | `GATEWAY_ENCRYPTION_KEY` | gateway | base64 32-byte key encrypting Meta access tokens |

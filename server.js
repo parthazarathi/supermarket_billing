@@ -41,6 +41,7 @@ const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getC
 const { createPurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderByNo, updatePurchaseOrderStatus, convertPurchaseOrderToPurchase, deletePurchaseOrder } = require('./lib/purchaseOrders');
 const { listAccounts, getAccount, saveAccount, deleteAccount, createTransaction, listAccountTransactions, getDefaultAccount } = require('./lib/accounts');
 const aiService = require('./lib/ai/service');
+const googleAuth = require('./lib/ai/googleAuth');
 const { listAiAudit } = require('./lib/ai/audit');
 
 const ROLE_LEVEL = { cashier: 1, manager: 2, admin: 3 };
@@ -2291,8 +2292,13 @@ app.get('/api/health', requireRole('admin'), (req, res) => {
 // Read-only assistant on top of the existing business layer. The model can
 // only call the registered tools - never SQL, never writes. All routes fail
 // closed: an AI outage must never affect billing.
-app.get('/api/ai/status', loginRequired, (req, res) => {
-  res.json({ ok: true, ai: aiService.aiStatus() });
+app.get('/api/ai/status', loginRequired, async (req, res) => {
+  try {
+    res.json({ ok: true, ai: await aiService.aiStatusLive() });
+  } catch (_) {
+    // The live check must never take the status endpoint down with it.
+    res.json({ ok: true, ai: aiService.aiStatus() });
+  }
 });
 
 app.post('/api/ai/chat', loginRequired, async (req, res) => {
@@ -2347,6 +2353,27 @@ app.post('/api/ai/config', requireRole('admin'), (req, res) => {
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
+});
+
+// Google Sign-In for the AI Store Manager. Verifies identity via OAuth +
+// id_token (never an email typed in a box). The response resolves only after
+// the browser flow finishes, so the UI shows a "finish in browser" state.
+app.post('/api/ai/google/connect', requireRole('admin'), async (req, res) => {
+  try {
+    const identity = await googleAuth.signIn();
+    audit(req, 'update', 'settings', '', `AI Google account connected (${identity.email || 'unknown'})`);
+    res.json({ ok: true, google: identity });
+  } catch (error) {
+    res.status(400).json(jsonError(errMsg(error)));
+  }
+});
+
+// Disconnect: clears the linked identity only. Business data, POS users and
+// stored settings are untouched; Google tokens are never persisted at all.
+app.post('/api/ai/google/disconnect', requireRole('admin'), (req, res) => {
+  const result = googleAuth.disconnect();
+  audit(req, 'update', 'settings', '', 'AI Google account disconnected');
+  res.json({ ok: true, google: result });
 });
 
 app.get('/api/ai/audit', requireRole('admin'), (req, res) => {
