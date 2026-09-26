@@ -1,2 +1,6 @@
-- Update settings: "Check automatically" and "Download updates automatically" toggles now sit on one line
-- Users section: proper spacing between the users table and the change-password row
+- Billing fixes: editing a bill can no longer push stock below zero, and a bill always keeps its customer unless you explicitly clear it
+- Purchases: a purchase bill can no longer be deleted or shrunk below stock that has already been sold
+- Payments: due collections only accept Cash / UPI / Card / Bank Transfer
+- Day close: the expected cash figure no longer counts credit-part of returns as cash paid out, and opening/closing cash must be a valid non-negative amount
+- Settings: Default GST only accepts valid GST slabs and GST type is validated
+- POS cart: quantity edits are checked against live stock, and passwords can no longer be reset to empty
