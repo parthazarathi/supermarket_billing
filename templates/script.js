@@ -5,6 +5,8 @@ const state = {
   user: null,
   settings: {},
   view: "pos",
+  viewLoading: false,
+  viewError: "",
   status: "",
   statusType: "",
   cart: emptyCart(),
@@ -171,6 +173,8 @@ function showToast(msg, type = "ok") {
     host = document.createElement("div");
     host.id = "toastHost";
     host.className = "toast-host";
+    host.setAttribute("role", "status");
+    host.setAttribute("aria-live", "polite");
     document.body.appendChild(host);
   }
   const toast = document.createElement("div");
@@ -182,6 +186,18 @@ function showToast(msg, type = "ok") {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 250);
   }, 3500);
+}
+
+function emptyStateHTML({ icon = "inbox", title, hint = "", action = "", sm = false }) {
+  return `<div class="empty-state${sm ? " sm" : ""}">${navIcon(icon)}<h4>${esc(title)}</h4>${hint ? `<p>${esc(hint)}</p>` : ""}${action}</div>`;
+}
+
+function tableSkeletonHTML(cols, rows = 6) {
+  return Array.from({ length: rows }, () => `<tr class="skel-tr">${Array.from({ length: cols }, () => '<td><span class="skel skel-cell"></span></td>').join("")}</tr>`).join("");
+}
+
+function errorStateHTML(message, retryId = "viewRetry") {
+  return `<div class="empty-state error-state">${navIcon("alert")}<h4>Something went wrong</h4><p>${esc(message)}</p><button class="btn ghost sm" id="${retryId}">${navIcon("refresh")} Try again</button></div>`;
 }
 
 async function api(url, options = {}) {
@@ -383,6 +399,16 @@ const NAV_ICONS = {
   logout: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
   moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  "chevron-left": '<polyline points="15 18 9 12 15 6"/>',
+  "chevron-right": '<polyline points="9 18 15 12 9 6"/>',
+  refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
 };
 
 function navIcon(icon) {
@@ -400,7 +426,10 @@ function render() {
           <label for="username">Username</label>
           <input name="username" id="username" autocomplete="username" required aria-required="true" />
           <label for="password">Password</label>
-          <input name="password" id="password" type="password" autocomplete="current-password" required aria-required="true" />
+          <div class="pw-wrap">
+            <input name="password" id="password" type="password" autocomplete="current-password" required aria-required="true" />
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">${navIcon("eye")}</button>
+          </div>
           <div class="status ${state.statusType} my-12" role="alert" aria-live="polite">${esc(state.status)}</div>
           <button class="btn wide" type="submit">Sign in</button>
         </form>
@@ -430,12 +459,28 @@ function render() {
     
     // Focus on username field when login page loads
     document.getElementById("username").focus();
+    document.getElementById("pwToggle")?.addEventListener("click", () => {
+      const pw = document.getElementById("password");
+      const show = pw.type === "password";
+      pw.type = show ? "text" : "password";
+      document.getElementById("pwToggle").setAttribute("aria-label", show ? "Hide password" : "Show password");
+      pw.focus();
+    });
     return;
   }
 
   const shop = state.settings.shop_name || "Mart POS";
+  // 'sidebar-expanded' marks an explicit user choice - below 1400px the rail
+  // auto-collapses unless this class is present.
+  const savedSidePref = localStorage.getItem("sidebarCollapsed");
+  const autoRail = savedSidePref === null && window.matchMedia("(max-width: 1400px)").matches;
+  const effectiveCollapsed = state.sidebarCollapsed || autoRail;
+  const shellState = state.sidebarCollapsed
+    ? 'sidebar-collapsed'
+    : (savedSidePref === "false" ? 'sidebar-expanded' : '');
   appEl.innerHTML = `
-    <div class="shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
+    <div class="shell ${shellState}">
+      <a class="skip-link" href="#view">Skip to content</a>
       <aside class="sidebar" role="navigation" aria-label="Main navigation">
         <div class="brand">
           <span class="brand-mark" aria-hidden="true">${esc((shop || "M").trim().charAt(0).toUpperCase() || "M")}</span>
@@ -443,13 +488,13 @@ function render() {
             <h1>${esc(shop)}</h1>
             <small>Billing &amp; inventory</small>
           </div>
-          <button class="sidebar-toggle" id="sidebarToggle" aria-label="${state.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}">${state.sidebarCollapsed ? '→' : '←'}</button>
+          <button class="sidebar-toggle" id="sidebarToggle" aria-label="${effectiveCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}">${navIcon(effectiveCollapsed ? "chevron-right" : "chevron-left")}</button>
         </div>
-        <nav role="menu">
+        <nav aria-label="Main">
         ${navItems()
           .map(
             ([id, label, icon]) =>
-              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}" role="menuitem" aria-current="${state.view === id ? 'page' : 'false'}" title="${esc(label)}">${navIcon(icon)}<span class="nav-label">${esc(label)}</span>${id === "settings" && updatePending() ? '<span class="nav-dot" title="Update available"></span>' : ""}</button>`
+              `<button class="nav-btn ${state.view === id ? "active" : ""}" data-view="${id}"${state.view === id ? ' aria-current="page"' : ""} title="${esc(label)}">${navIcon(icon)}<span class="nav-label">${esc(label)}</span>${id === "settings" && updatePending() ? '<span class="nav-dot" title="Update available"></span>' : ""}</button>`
           )
           .join("")}
         </nav>
@@ -482,7 +527,7 @@ function render() {
               </div>`
               : `
               <div>
-                <h2>${navItems().find((n) => n[0] === state.view)?.[1] || ""}</h2>
+                <h2 id="pageTitle">${navItems().find((n) => n[0] === state.view)?.[1] || ({ "new-purchase": "Purchases" })[state.view] || ""}</h2>
               </div>`
           }
           <div class="topbar-right">
@@ -490,7 +535,7 @@ function render() {
             <button class="topbar-icon" id="themeToggle" aria-label="Switch color theme" title="Switch light / dark theme">${navIcon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon")}</button>
           </div>
         </header>
-        <div class="content" id="view" role="region" aria-live="polite"></div>
+        <div class="content" id="view" role="region" aria-live="polite" tabindex="-1"></div>
       </section>
     </div>`;
 
@@ -503,7 +548,9 @@ function render() {
     render();
   });
   document.getElementById("sidebarToggle").addEventListener("click", () => {
-    state.sidebarCollapsed = !state.sidebarCollapsed;
+    // Flip the *effective* state - below 1400px an unset preference still
+    // shows the rail, so "expand" must record an explicit 'false' choice.
+    state.sidebarCollapsed = !effectiveCollapsed;
     localStorage.setItem("sidebarCollapsed", state.sidebarCollapsed ? "true" : "false");
     render();
   });
@@ -572,6 +619,8 @@ async function switchView(view) {
     return;
   }
   state.view = view;
+  state.viewError = "";
+  state.viewLoading = view !== "pos" && view !== "new-purchase" && view !== "ai" && view !== "reports";
   render();
   try {
     if (view === "dashboard") await loadDashboard();
@@ -589,15 +638,28 @@ async function switchView(view) {
     if (view === "ai" && window.MartAI) await window.MartAI.loadAI();
   } catch (err) {
     setStatus(err.message, "error");
+    state.viewError = err.message;
+    state.viewLoading = false;
+    renderView();
+    return;
   }
+  state.viewLoading = false;
 }
 
 function renderView() {
   const view = document.getElementById("view");
   if (!view) return;
+  view._cleanup?.();
+  view._cleanup = null;
   if (state.focusInterval) {
     clearInterval(state.focusInterval);
     state.focusInterval = null;
+  }
+  view.className = `content view-${state.view}`;
+  if (state.viewError && !["pos", "new-purchase"].includes(state.view)) {
+    view.innerHTML = errorStateHTML(state.viewError);
+    view.querySelector("#viewRetry")?.addEventListener("click", () => switchView(state.view));
+    return;
   }
   const map = {
     dashboard: renderDashboard,
@@ -710,12 +772,12 @@ function renderDashboard(view) {
     </div>
 
     <div class="dash-actions">
-      <button class="btn sm" data-qa="pos">+ New Bill</button>
+      <button class="btn sm" data-qa="pos">${navIcon("plus")} New bill</button>
       ${mgr ? `
-        <button class="btn sm ghost" data-qa="add-item">+ Add Item</button>
-        <button class="btn sm ghost" data-qa="new-purchase">+ New Purchase</button>
-        <button class="btn sm ghost" data-qa="expenses">+ Add Expense</button>
-        <button class="btn sm ghost" data-qa="items">Stock Adjustment</button>
+        <button class="btn sm ghost" data-qa="add-item">${navIcon("plus")} Add item</button>
+        <button class="btn sm ghost" data-qa="new-purchase">${navIcon("plus")} Add purchase</button>
+        <button class="btn sm ghost" data-qa="expenses">${navIcon("plus")} Add expense</button>
+        <button class="btn sm ghost" data-qa="items">Stock adjustment</button>
         <button class="btn sm ghost" data-qa="reports">Reports</button>` : ""}
     </div>
 
@@ -742,7 +804,7 @@ function renderDashboard(view) {
               </div>`).join(""); })()}
           </div>
           <div class="dash-legend"><span class="dot sales"></span> Net sales <span class="dot profit"></span> Profit <span class="muted">· hover for bills</span></div>
-        ` : `<div class="dash-empty">No sales found for this period.</div>`}
+        ` : `<div class="dash-empty">${emptyStateHTML({ icon: "inbox", title: "No sales found for this period.", sm: true })}</div>`}
       </div>
 
       <div class="card">
@@ -754,7 +816,7 @@ function renderDashboard(view) {
             <tfoot><tr><td><b>Total</b></td><td class="num"><b>₹ ${money(d.payments.collected)}</b></td><td></td></tr></tfoot>
           </table></div>
           ${Number(d.payments.credit) > 0 ? `<p class="muted mt-8">Credit (unpaid) sales: ₹ ${money(d.payments.credit)}</p>` : ""}
-        ` : `<div class="dash-empty">No collections for this period.</div>`}
+        ` : `<div class="dash-empty">${emptyStateHTML({ icon: "inbox", title: "No collections for this period.", sm: true })}</div>`}
       </div>
 
       <div class="card">
@@ -764,7 +826,7 @@ function renderDashboard(view) {
             <thead><tr><th>#</th><th>Item</th><th class="num">Qty</th><th class="num">Sales</th><th class="num">Profit</th></tr></thead>
             <tbody>${d.top_items.slice(0, 10).map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.item)}</td><td class="num">${money(it.qty)}</td><td class="num">₹ ${money(it.sales)}</td><td class="num">₹ ${money(it.profit)}</td></tr>`).join("")}</tbody>
           </table></div>
-        ` : `<div class="dash-empty">No sales found for this period.</div>`}
+        ` : `<div class="dash-empty">${emptyStateHTML({ icon: "inbox", title: "No sales found for this period.", sm: true })}</div>`}
       </div>
 
       <div class="card">
@@ -776,7 +838,7 @@ function renderDashboard(view) {
               <td>${esc(i.name)}</td><td class="num">${money(i.stock)} ${esc(i.unit)}</td><td class="num">${money(i.low_stock)}</td>
               <td><span class="badge badge-${i.status === "Critical" ? "cancelled" : "partial"}">${i.status}</span></td></tr>`).join("")}</tbody>
           </table></div>
-        ` : `<div class="dash-empty">No low-stock items.</div>`}
+        ` : `<div class="dash-empty">${emptyStateHTML({ icon: "inbox", title: "No low-stock items.", sm: true })}</div>`}
       </div>
     </div>
 
@@ -794,7 +856,7 @@ function renderDashboard(view) {
             <td><span class="badge badge-${i.status === "paid" ? "paid" : i.status === "partial" ? "partial" : i.status === "cancelled" ? "cancelled" : i.status === "returned" ? "partial" : "unpaid"}">${esc(i.status)}</span></td>
           </tr>`).join("")}</tbody>
         </table></div>
-      ` : `<div class="dash-empty">No recent bills.</div>`}
+      ` : `<div class="dash-empty">${emptyStateHTML({ icon: "inbox", title: "No recent bills.", sm: true })}</div>`}
     </div>
 
     <div class="dash-grid">
@@ -883,7 +945,7 @@ function renderPos(view) {
             <div class="search-section">
               <div class="search-row">
                 <div class="search-input-wrap">
-                  <input id="productSearch" placeholder="Scan barcode or type product name" aria-label="Product search" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggestions" />
+                  <input id="productSearch" placeholder="Scan barcode or search product · F2" aria-label="Product search" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggestions" />
                   <div id="searchSuggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions"></div>
                 </div>
                 <button class="btn" id="addBtn" aria-label="Add product from search">Add</button>
@@ -897,6 +959,8 @@ function renderPos(view) {
               <h3>Order Items</h3>
               <div class="section-actions">
                 <span class="item-count">${c.items.length} items</span>
+                <button class="btn ghost sm" id="holdBtn" aria-label="Hold this bill" ${c.items.length ? "" : "disabled"}>Hold</button>
+                <button class="btn ghost sm" id="heldBtn" aria-label="Resume a held bill" ${(state.held || []).length ? "" : "disabled"}>Held (${(state.held || []).length})</button>
                 <button class="btn ghost sm" id="clearCartBtn" aria-label="Clear all items from the order" ${c.items.length ? "" : "disabled"}>Clear</button>
               </div>
             </div>
@@ -934,10 +998,10 @@ function renderPos(view) {
                       </td>
                       <td class="num"><input type="number" min="0" step="1" value="${item.discount}" data-discount="${esc(item.code)}" aria-label="Discount for ${esc(item.name)}" class="discount-input sm" /></td>
                       <td class="num">₹ ${money(item.line_total)}</td>
-                      <td class="actions-col"><button class="btn danger sm icon-btn" data-remove="${esc(item.code)}" aria-label="Remove ${esc(item.name)} from order" title="Remove item">✕</button></td>
+                      <td class="actions-col"><button class="btn danger sm icon-btn" data-remove="${esc(item.code)}" aria-label="Remove ${esc(item.name)} from order" title="Remove item">${navIcon("x")}</button></td>
                     </tr>`
                       )
-                      .join("") || `<tr><td colspan="8" class="empty-cart">Scan or search products to add them to the order</td></tr>`
+                      .join("") || `<tr><td colspan="8" class="empty-cart">${emptyStateHTML({ icon: "search", title: "No items yet", hint: "Scan a barcode or search a product to add it." })}</td></tr>`
                   }
                 </tbody>
               </table>
@@ -952,15 +1016,17 @@ function renderPos(view) {
         
         <div class="pos-right">
           <div class="customer-summary-section">
-            <div class="customer-field">
-              <label for="customerName">Customer Name</label>
-              <input id="customerName" type="text" placeholder="Walk-in customer" value="${esc(state.customerName || '')}" aria-label="Customer name" autocomplete="off" />
-              <div class="customer-suggestions" id="nameSuggestions"></div>
-            </div>
-            <div class="customer-field">
-              <label for="customerPhone">Mobile Number</label>
-              <input id="customerPhone" type="tel" placeholder="+91..." value="${esc(state.customerPhone || '')}" aria-label="Customer mobile number" autocomplete="off" />
-              <div class="customer-suggestions" id="phoneSuggestions"></div>
+            <div class="customer-fields">
+              <div class="customer-field">
+                <label for="customerName">Customer Name</label>
+                <input id="customerName" type="text" placeholder="Walk-in customer" value="${esc(state.customerName || '')}" aria-label="Customer name" autocomplete="off" />
+                <div class="customer-suggestions" id="nameSuggestions"></div>
+              </div>
+              <div class="customer-field">
+                <label for="customerPhone">Mobile Number</label>
+                <input id="customerPhone" type="tel" placeholder="+91..." value="${esc(state.customerPhone || '')}" aria-label="Customer mobile number" autocomplete="off" />
+                <div class="customer-suggestions" id="phoneSuggestions"></div>
+              </div>
             </div>
             <label class="whatsapp-check-label">
               <input type="checkbox" id="waCheck" ${state.sendWhatsapp ? "checked" : ""} />
@@ -969,6 +1035,7 @@ function renderPos(view) {
           </div>
           
           <div class="order-summary">
+            <div class="order-summary-scroll">
             <div class="summary-header">
               <h3>Order Summary</h3>
             </div>
@@ -1006,7 +1073,7 @@ function renderPos(view) {
                   )
                   .join("")}
               </div>
-              
+
               <div class="payment-details">
                 <div class="payment-row">
                   <label for="paidInput">Amount Received</label>
@@ -1021,7 +1088,7 @@ function renderPos(view) {
                   <span class="due-amount">₹ ${money(Math.max(0, c.total - received))}</span>
                 </div>
               </div>
-              
+
               ${
                 state.payment === "UPI" && c.total
                   ? `<div class="qr-section">
@@ -1029,11 +1096,12 @@ function renderPos(view) {
                     </div>`
                   : ""
               }
-              
-              <div class="payment-actions">
-                <button class="btn wide green" id="payBtn" aria-label="Pay ₹${money(received)} received">Pay ₹ ${money(received)}</button>
-                <button class="btn wide" id="printBtn" aria-label="Print and pay ₹${money(received)} received">Print &amp; Pay ₹ ${money(received)}</button>
-              </div>
+            </div>
+            </div>
+            <div class="payment-actions">
+              <button class="btn wide green" id="payBtn" aria-label="Pay ₹${money(received)} received" title="Pay (F8)"><span class="pay-label">Pay</span><strong class="pay-amount">₹ ${money(received)}</strong></button>
+              <button class="btn wide" id="printBtn" aria-label="Print and pay ₹${money(received)} received" title="Print &amp; pay (F9)"><span class="pay-label">Print &amp; Pay</span><strong class="pay-amount">₹ ${money(received)}</strong></button>
+              <div class="pos-hints" aria-hidden="true"><span><kbd>F2</kbd> Search</span><span><kbd>F4</kbd> Amount</span><span><kbd>F8</kbd> Pay</span><span><kbd>F9</kbd> Print &amp; pay</span></div>
             </div>
           </div>
         </div>
@@ -1198,18 +1266,6 @@ function renderPos(view) {
   
   // Global keyboard shortcuts
   const keyboardHandler = (e) => {
-    // F2 - Focus search
-    if (e.key === 'F2') {
-      e.preventDefault();
-      search.focus();
-    }
-    
-    // F8 - Charge bill
-    if (e.key === 'F8') {
-      e.preventDefault();
-      document.getElementById('payBtn').click();
-    }
-    
     // Tab + Shift - Navigate between sections
     if (e.key === 'Tab' && e.shiftKey) {
       const activeElement = document.activeElement;
@@ -1282,6 +1338,15 @@ function renderPos(view) {
     });
   });
   document.getElementById("clearCartBtn").addEventListener("click", clearCart);
+  document.getElementById("holdBtn")?.addEventListener("click", holdCart);
+  document.getElementById("heldBtn")?.addEventListener("click", async () => {
+    try {
+      await refreshHeld();
+    } catch (err) {
+      setStatus(err.message, "error");
+    }
+    heldListModal();
+  });
   document.getElementById("billDiscount").addEventListener("change", async (e) => {
     try {
       applyCart(await api("/api/cart/discount", { method: "POST", body: { discount: Number(e.target.value) } }));
@@ -1338,9 +1403,15 @@ function renderPos(view) {
     }
     // Buttons reflect the received amount, not the bill total
     const payBtn = document.getElementById('payBtn');
-    if (payBtn) payBtn.textContent = `Pay ₹ ${money(paid)}`;
+    if (payBtn) {
+      payBtn.querySelector(".pay-amount").textContent = `₹ ${money(paid)}`;
+      payBtn.setAttribute("aria-label", `Pay ₹${money(paid)} received`);
+    }
     const printBtn = document.getElementById('printBtn');
-    if (printBtn) printBtn.textContent = `Print & Pay ₹ ${money(paid)}`;
+    if (printBtn) {
+      printBtn.querySelector(".pay-amount").textContent = `₹ ${money(paid)}`;
+      printBtn.setAttribute("aria-label", `Print and pay ₹${money(paid)} received`);
+    }
   });
   document.getElementById("payBtn").addEventListener("click", () => chargeBill(false));
   document.getElementById("printBtn").addEventListener("click", printBill);
@@ -1697,15 +1768,46 @@ async function whatsappDeliveryModal(invoiceId) {
   });
 }
 
-async function recallHeld() {
-  const list = (await api("/api/cart/held")).held || [];
-  if (!list.length) {
-    setStatus("No held bills", "error");
-    return;
+async function holdCart() {
+  const currentTabLabel = (state.tabs || []).find((t) => t.posId === state.posId)?.label || "Bill";
+  const name = await promptDialog({ title: "Hold this bill", label: "Name", value: state.customerName || currentTabLabel, confirmLabel: "Hold" });
+  if (name === null) return;
+  try {
+    const r = await api("/api/cart/hold", { method: "POST", body: { name } });
+    state.held = (await api("/api/cart/held")).held;
+    state.paid = "";
+    applyCart(r);
+    showToast("Bill held");
+  } catch (err) {
+    setStatus(err.message, "error");
   }
-  const choice = prompt(list.map((h) => `${h.id}: ${h.name}`).join("\n") + "\n\nEnter id");
-  if (!choice) return;
-  applyCart(await api(`/api/cart/recall/${choice}`, { method: "POST", body: {} }));
+}
+
+async function refreshHeld() {
+  state.held = (await api("/api/cart/held")).held;
+}
+
+function heldListModal() {
+  const list = state.held || [];
+  openModal(`<h3>Held bills</h3>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Held at</th><th></th></tr></thead>
+    <tbody>${list
+      .map((h) => `<tr><td>${esc(h.name || "Bill")}</td><td>${esc(fmtDateTime(h.created_at))}</td>
+        <td class="num"><button class="btn sm" data-resume="${h.id}">Resume</button></td></tr>`)
+      .join("") || `<tr><td colspan="3" class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: "No held bills" })}</td></tr>`}
+    </tbody></table></div>`);
+  modalEl.querySelectorAll("[data-resume]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await refreshHeld();
+        applyCart(await api(`/api/cart/recall/${btn.dataset.resume}`, { method: "POST", body: {} }));
+        closeModal();
+        showToast("Bill resumed");
+      } catch (err) {
+        setStatus(err.message, "error");
+      }
+    });
+  });
 }
 
 function csvValue(value) {
@@ -1813,7 +1915,7 @@ async function importProductsCsv(file) {
     const text = await file.text();
     const rows = parseProductCsv(text);
     if (rows.length === 0) throw new Error("CSV file does not contain any products");
-    if (!confirm(`Import ${rows.length} products? Existing barcodes will be updated, including their stock values.`)) return;
+    if (!(await confirmDialog({ title: `Import ${rows.length} products?`, message: "Existing barcodes will be updated, including their stock values.", confirmLabel: "Import", danger: false }))) return;
     const result = await api("/api/items/import", { method: "POST", body: { items: rows } });
     await loadItems(false);
     if (state.view === "items") renderView();
@@ -1832,6 +1934,7 @@ function renderItems(view) {
   <button class="btn ghost" id="importItems">Import CSV</button>
   <button class="btn ghost" id="exportItems">Export CSV</button>
   <input id="itemsCsvFile" type="file" accept=".csv,text/csv" hidden />
+  <span class="muted toolbar-count">${state.items.length} items</span>
 </div>`
         : ""
     }
@@ -1839,15 +1942,17 @@ function renderItems(view) {
       <table class="data-table items-list">
         <thead><tr><th>Code</th><th>Name</th><th>Category</th><th class="num">Purchase</th><th class="num">MRP</th><th class="num">Sale</th><th class="num">GST</th><th class="num">Stock</th><th class="actions-col"></th></tr></thead>
         <tbody>
-          ${state.items
+          ${state.viewLoading && !state.items.length
+            ? tableSkeletonHTML(9)
+            : state.items
             .map(
               (i) => `<tr>
-                <td>${esc(i.code)}</td><td>${esc(i.name)}</td><td>${esc(i.category)}</td>
+                <td><code class="mono">${esc(i.code)}</code></td><td class="cell-wrap">${esc(i.name)}</td><td>${esc(i.category)}</td>
                 <td class="num">₹ ${money(i.purchase_price)}</td>
                 <td class="num">₹ ${money(i.mrp || i.sale_price)}</td>
                 <td class="num">₹ ${money(i.sale_price)}</td>
                 <td class="num">${i.gst_percent}%</td>
-                <td class="num ${Number(i.stock) <= Number(i.low_stock) ? "low" : ""}">${money(i.stock)}</td>
+                <td class="num">${Number(i.stock) <= Number(i.low_stock) ? `<span class="badge badge-unpaid">${money(i.stock)}</span>` : money(i.stock)}</td>
                 <td class="actions-col">
                   <div class="row-menu-wrap">
                     <button class="btn ghost sm icon-btn" data-menu="${i.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
@@ -1863,11 +1968,12 @@ function renderItems(view) {
                 </td>
               </tr>`
             )
-            .join("") || `<tr><td colspan="9" class="empty-state-cell">No items yet — add your first product to start billing.</td></tr>`}
+            .join("") || `<tr><td colspan="9" class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: "No items yet", hint: "Add your first product to start billing.", action: can("manager") ? '<button class="btn sm" id="emptyAddItem">Add item</button>' : "" })}</td></tr>`}
         </tbody>
       </table>
     </div>`;
   document.getElementById("newItem")?.addEventListener("click", () => itemForm());
+  document.getElementById("emptyAddItem")?.addEventListener("click", () => itemForm());
   document.getElementById("exportItems")?.addEventListener("click", () => exportProductsCsv());
   document.getElementById("importItems")?.addEventListener("click", () => {
     const input = document.getElementById("itemsCsvFile");
@@ -1907,7 +2013,7 @@ function renderItems(view) {
       else if (btn.dataset.act === "edit") itemForm(item);
       else if (btn.dataset.act === "adj") stockAdjustForm(item);
       else if (btn.dataset.act === "del") {
-        if (!confirm(`Delete ${item.name}?`)) return;
+        if (!(await confirmDialog({ title: `Delete ${item.name}?`, message: "This product will be removed from the catalogue." }))) return;
         await api(`/api/items/${item.id}`, { method: "DELETE" });
         await loadItems();
       }
@@ -1972,13 +2078,13 @@ function stockAdjustForm(item) {
           <option value="wastage">Wastage (reduces stock)</option>
         </select>
       </label>
-      <label>Quantity change
+      <label>Quantity change <span class="req" aria-hidden="true">*</span>
         <input name="change" type="number" step="1" placeholder="e.g. -2 or 5" required />
       </label>
       <label class="full">Reason
         <input name="reason" placeholder="Reason for adjustment" />
       </label>
-      <div class="full form-error" id="adjFormError" style="display:none"></div>
+      <div class="full form-error" id="adjFormError" role="alert" style="display:none"></div>
     </form>`, "adjForm");
   document.getElementById("adjForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2012,12 +2118,12 @@ function itemForm(item = {}) {
     .map((u) => `<option value="${esc(u)}" ${(item.unit || "pcs") === u ? "selected" : ""}>${esc(u)}</option>`)
     .join("");
   openModal(`
-    <h3>${item.id ? "Edit item" : "New item"}</h3>
+    <h3>${item.id ? "Edit item" : "Add item"}</h3>
     <form id="itemForm" class="form-grid" novalidate>
-      <label class="full">Barcode / Code
+      <label class="full">Barcode / Code <span class="req" aria-hidden="true">*</span>
         <input name="code" placeholder="Barcode / code" value="${esc(item.code || "")}" required />
       </label>
-      <label class="full">Name
+      <label class="full">Name <span class="req" aria-hidden="true">*</span>
         <input name="name" placeholder="Name" value="${esc(item.name || "")}" required />
       </label>
       <label>Category
@@ -2029,16 +2135,16 @@ function itemForm(item = {}) {
       <label>Sale price
         <input name="sale_price" type="number" step="1" placeholder="Sale price" value="${item.sale_price ?? ""}" />
       </label>
-      <label>Purchase price
+      <label>Purchase price <span class="req" aria-hidden="true">*</span>
         <input name="purchase_price" type="number" step="1" min="1" placeholder="Purchase price" value="${item.purchase_price ?? ""}" required />
       </label>
-      <label>MRP
+      <label>MRP <span class="req" aria-hidden="true">*</span>
         <input name="mrp" type="number" step="1" min="1" placeholder="MRP" value="${item.mrp || item.sale_price || ""}" required />
       </label>
       <label>GST %
         <input name="gst_percent" type="number" step="1" placeholder="GST %" value="${item.gst_percent ?? (parseFloat(state.settings?.default_gst) || 0)}" />
       </label>
-      <label>Stock
+      <label>Stock <span class="req" aria-hidden="true">*</span>
         <input name="stock" type="number" step="1" min="1" placeholder="Stock" value="${item.stock ?? 0}" required />
       </label>
       <label>Unit
@@ -2047,7 +2153,7 @@ function itemForm(item = {}) {
       <label>Low stock
         <input name="low_stock" type="number" step="1" placeholder="Low stock" value="${item.low_stock ?? 5}" />
       </label>
-      <div class="full form-error" id="itemFormError"></div>
+      <div class="full form-error" id="itemFormError" role="alert"></div>
     </form>`, "itemForm");
   document.getElementById("itemForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2112,7 +2218,9 @@ function renderParties(view) {
     <div class="parties-layout">
       <div class="card party-list">
         <div class="party-list-items">
-          ${filtered
+          ${state.viewLoading && !filtered.length
+            ? Array.from({ length: 6 }, () => '<div class="party-item"><span class="skel skel-cell"></span></div>').join("")
+            : filtered
             .map(
               (p) => `<button class="party-item ${selected && p.id === selected.id ? "active" : ""}" data-select="${p.id}">
                 <span class="party-item-info">
@@ -2122,7 +2230,7 @@ function renderParties(view) {
                 <span class="party-item-outstanding ${p.outstanding === 0 ? "" : (p.type === "supplier" ? (p.outstanding > 0 ? "negative" : "positive") : (p.outstanding > 0 ? "positive" : "negative"))}">${p.outstanding < 0 ? "−" : ""}₹ ${money(Math.abs(p.outstanding))}</span>
               </button>`
             )
-            .join("") || `<div class="empty-state-cell">No ${filter}s found</div>`
+            .join("") || `<div class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: `No ${filter}s yet`, hint: can("manager") ? "Add a party to track bills and payments." : "" })}</div>`
           }
         </div>
       </div>
@@ -2179,7 +2287,7 @@ async function renderPartyDetail(el, party) {
       const profit = e.profit === undefined || e.profit === null ? null : Number(e.profit);
       return `<tr class="${isBill ? "" : "party-ledger-txn"}">
         <td>${e.date ? esc(fmtDateTime(e.date)) : "—"}</td>
-        <td>${esc(e.type)}</td>
+        <td class="cell-wrap">${esc(e.type)}</td>
         <td data-col="ref">${esc(e.ref || "—")}</td>
         <td class="num" data-col="debit">${e.debit ? `₹ ${money(e.debit)}` : "—"}</td>
         <td class="num" data-col="credit">${e.credit ? `₹ ${money(e.credit)}` : "—"}</td>
@@ -2207,6 +2315,10 @@ async function renderPartyDetail(el, party) {
     ];
     if (ob.return_credit) obParts.push(`<span>Return credits <b>− ₹ ${money(ob.return_credit)}</b></span>`);
     if (ob.standalone_paid) obParts.push(`<span>${isSupplier ? "Payments made" : "Receipts"} <b>− ₹ ${money(ob.standalone_paid)}</b></span>`);
+    if (showProfit) {
+      const totalProfit = ledgerAll.reduce((sum, e) => sum + (Number(e.profit) || 0), 0);
+      obParts.push(`<span>Profit <b class="profit-cell ${totalProfit >= 0 ? "profit-positive" : "profit-negative"}">₹ ${money(totalProfit)}</b></span>`);
+    }
     obParts.push(`<span class="party-outstanding-total">${outLabel} <b>₹ ${money(outAmount)}</b></span>`);
     const contact = [party.phone, party.email, party.gstin].filter(Boolean).join(" · ");
     el.innerHTML = `
@@ -2245,7 +2357,7 @@ async function renderPartyDetail(el, party) {
       <div class="table-wrap party-detail-table">
         <table class="data-table ledger-table ${hiddenCols}">
           <thead><tr><th>Date</th><th>Entry</th><th data-col="ref">Ref</th><th class="num" data-col="debit">${isSupplier ? "Paid" : "Billed"}</th><th class="num" data-col="credit">${isSupplier ? "Billed" : "Received"}</th><th class="num" data-col="balance">Balance</th>${showProfit ? `<th class="num" data-col="profit">Profit</th>` : ""}<th data-col="status">Status</th><th class="actions-col party-bill-actions-col"></th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="${columnCount}" class="empty-state-cell">No entries found</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${columnCount}" class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: "No entries found" })}</td></tr>`}</tbody>
         </table>
       </div>
       <div class="party-outstanding">${obParts.join("")}</div>`;
@@ -2297,7 +2409,7 @@ async function renderPartyDetail(el, party) {
     });
     el.querySelector("[data-detail-edit]")?.addEventListener("click", () => partyForm(party));
     el.querySelector("[data-detail-del]")?.addEventListener("click", async () => {
-      if (!confirm("Delete this party?")) return;
+      if (!(await confirmDialog({ title: "Delete this party?" }))) return;
       try {
         await api(`/api/parties/${party.id}`, { method: "DELETE" });
         state.selectedParty = null;
@@ -2319,7 +2431,7 @@ function partyPaymentModal(party) {
     <h3>${isSupplier ? "Pay" : "Receive from"} ${esc(party.name)}</h3>
     <p class="muted">${outstanding < 0 ? `Advance balance: ₹ ${money(Math.abs(outstanding))} — no pending bills, payment adds to ${isSupplier ? "supplier" : "customer"} credit` : `${isSupplier ? "Payable" : "Outstanding"}: ₹ ${money(outstanding)} · Applied to pending bills (oldest first)`}</p>
     <form id="partyPayForm" class="form-grid">
-      <label class="full">Amount
+      <label class="full">Amount <span class="req" aria-hidden="true">*</span>
         <input name="amount" type="number" min="0" step="0.01" placeholder="Amount" value="0" required autofocus />
       </label>
       <label>Method
@@ -2328,7 +2440,7 @@ function partyPaymentModal(party) {
       <label>Note
         <input name="note" placeholder="Optional note" />
       </label>
-      <div class="full form-error" id="partyPayError"></div>
+      <div class="full form-error" id="partyPayError" role="alert"></div>
     </form>`, "partyPayForm");
   document.getElementById("partyPayForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2352,9 +2464,9 @@ function partyPaymentModal(party) {
 function partyForm(party = {}) {
   const isSupplier = party.type === "supplier";
   openModal(`
-    <h3>${party.id ? "Edit party" : "New party"}</h3>
+    <h3>${party.id ? "Edit party" : "Add party"}</h3>
     <form id="partyForm" class="form-grid">
-      <label class="full">Name
+      <label class="full">Name <span class="req" aria-hidden="true">*</span>
         <input name="name" placeholder="Name" value="${esc(party.name || "")}" required />
       </label>
       <label>Type
@@ -2455,10 +2567,12 @@ function renderSales(view) {
       <table class="data-table sales-list">
         <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th>WhatsApp</th><th>Status</th><th class="actions-col"></th></tr></thead>
         <tbody>
-          ${state.invoices
+          ${state.viewLoading && !state.invoices.length
+            ? tableSkeletonHTML(8)
+            : state.invoices
             .map(
               (i) => `<tr>
-                <td>${esc(i.invoice_no)}</td><td>${esc(fmtDateTime(i.created_at))}</td><td>${esc(i.party_name || "Walk-in")}</td>
+                <td>${esc(i.invoice_no)}</td><td><div>${fmtD(i.created_at)}</div><div class="muted fs-12">${fmtT(i.created_at)}</div></td><td class="cell-wrap">${esc(i.party_name || "Walk-in")}</td>
                 <td class="num">₹ ${money(i.total)}</td><td class="num">₹ ${money(i.paid)}</td>
                 <td>${i.whatsapp
                   ? `<button class="btn ghost sm wa-cell ${whatsappStatusClass(i.whatsapp.status)}" data-wainfo="${i.id}" title="WhatsApp ${esc(whatsappStatusLabel(i.whatsapp.status))}${i.whatsapp.at ? ` · ${esc(fmtDateTime(i.whatsapp.at))}` : ""}">${esc(whatsappStatusLabel(i.whatsapp.status))}</button>`
@@ -2480,7 +2594,7 @@ function renderSales(view) {
                 </td>
               </tr>`
             )
-            .join("") || `<tr><td colspan="8" class="empty-state-cell">No bills found for this period.</td></tr>`}
+            .join("") || `<tr><td colspan="8" class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: "No bills found", hint: "No sales were recorded for this period." })}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -2540,7 +2654,7 @@ function renderSales(view) {
         } else if (btn.dataset.act === "del") {
           const passcode = await askPasscode(`Delete bill ${inv ? inv.invoice_no : ""}`);
           if (passcode === null) return;
-          const reason = prompt("Reason for deleting");
+          const reason = await promptDialog({ title: "Reason for deleting", label: "Reason", placeholder: "e.g. duplicate bill" });
           if (reason === null) return;
           await api(`/api/invoices/${id}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
           setStatus("Bill deleted", "ok");
@@ -2584,7 +2698,7 @@ function openReceivePayment(inv) {
       <h3>Receive payment · ${esc(inv.invoice_no)}</h3>
       <p class="help">${esc(inv.party_name || "Walk-in")} · Bill ₹ ${money(inv.total)} · Paid ₹ ${money(inv.paid)} · <b>Due ₹ ${money(due)}</b></p>
       <div class="form-grid">
-        <label>Amount received
+        <label>Amount received <span class="req" aria-hidden="true">*</span>
           <input name="amount" type="number" min="0.01" max="${due}" step="any" value="${money(due).replace(/,/g, "")}" required autofocus />
         </label>
         <label>Payment method
@@ -2621,13 +2735,14 @@ function askPasscode(title) {
       `<form id="pcForm"><h3>${esc(title)}</h3><p class="help">Enter the bill passcode to continue.</p><input name="passcode" type="password" inputmode="numeric" autofocus required /></form>`,
       "pcForm"
     );
+    modalOnClose = () => resolve(null);
     document.getElementById("pcForm").addEventListener("submit", (e) => {
       e.preventDefault();
       const value = new FormData(e.target).get("passcode");
+      modalOnClose = null;
       closeModal();
       resolve(value);
     });
-    document.getElementById("closeModal").addEventListener("click", () => resolve(null), { once: true });
     const input = document.querySelector('#pcForm input[name="passcode"]');
     if (input) input.focus();
   });
@@ -2707,6 +2822,7 @@ async function openEditBill(id) {
             <div class="customer-field"><label for="ebPartyPhone">Mobile number</label><input name="party_phone" id="ebPartyPhone" value="${esc(inv.party_phone || "")}" /></div>
           </div>
           <div class="order-summary">
+            <div class="order-summary-scroll">
             <div class="summary-header"><h3>Order Summary</h3></div>
             <div class="cart-totals">
               <div class="total-row"><span>Subtotal</span><span id="ebSubtotal">₹ 0.00</span></div>
@@ -2726,6 +2842,7 @@ async function openEditBill(id) {
               </div>
             </div>
             <div class="customer-field edit-reason"><label for="ebReason">Reason (optional)</label><input name="reason" id="ebReason" placeholder="e.g. wrong quantity" /></div>
+            </div>
           </div>
         </aside>
       </div>
@@ -2779,8 +2896,8 @@ async function openEditBill(id) {
       <td class="num qty-col"><div class="qty-control-inline"><button type="button" class="qty-btn sm icon-btn" data-eb-minus="${idx}">−</button><input data-eb="q" data-idx="${idx}" type="number" min="0.001" step="any" value="${line.quantity}" class="qty-input sm" aria-label="Quantity for ${esc(line.name)}" /><button type="button" class="qty-btn sm icon-btn" data-eb-plus="${idx}">+</button></div></td>
       <td class="num"><input data-eb="d" data-idx="${idx}" type="number" min="0" step="any" value="${line.discount}" class="discount-input sm" aria-label="Discount for ${esc(line.name)}" /></td>
       <td class="num" data-eb-total>₹ ${money(lineTotal(line))}</td>
-      <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-eb-del="${idx}" title="Remove item">✕</button></td>
-    </tr>`).join("") || `<tr><td colspan="8" class="empty-cart">Search products to add them to the bill</td></tr>`;
+      <td class="actions-col"><button type="button" class="btn danger sm icon-btn" data-eb-del="${idx}" title="Remove item">${navIcon("x")}</button></td>
+    </tr>`).join("") || `<tr><td colspan="8" class="empty-cart">${emptyStateHTML({ icon: "search", title: "No items yet", hint: "Scan a barcode or search a product to add it." })}</td></tr>`;
     document.getElementById("ebItemCount").textContent = `${lines.length} item${lines.length === 1 ? "" : "s"}`;
     document.getElementById("ebClear").disabled = lines.length === 0;
     tbody.querySelectorAll("[data-eb]").forEach((input) => {
@@ -2848,8 +2965,8 @@ async function openEditBill(id) {
     const exact = (state.items || []).find((item) => String(item.code).toLowerCase() === query || String(item.name).toLowerCase() === query);
     if (exact || searchMatches[0]) addItem(exact || searchMatches[0]);
   });
-  document.getElementById("ebClear").addEventListener("click", () => {
-    if (!lines.length || !confirm("Clear all items from this bill?")) return;
+  document.getElementById("ebClear").addEventListener("click", async () => {
+    if (!lines.length || !(await confirmDialog({ title: "Clear all items from this bill?", message: "The edited lines will be emptied but the original bill stays saved." }))) return;
     lines.splice(0);
     renderLines();
     updateSummary();
@@ -2936,18 +3053,20 @@ async function openReturn(id) {
 function renderPurchases(view) {
   view.innerHTML = `
     ${filterToolbarHTML(state.purchaseFilter, state.purchaseFrom, state.purchaseTo, `${state.purchases.length} purchase${state.purchases.length === 1 ? "" : "s"}`)}
-    <div class="toolbar"><button class="btn" id="newPurchase">New purchase</button></div>
+    <div class="toolbar"><button class="btn" id="newPurchase">Add purchase</button></div>
     <div class="card table-wrap">
       <table class="data-table purchases-list">
         <thead><tr><th>No</th><th>Date</th><th>Supplier</th><th class="num">Total</th><th class="num">Paid</th><th>Status</th><th class="actions-col"></th></tr></thead>
         <tbody>
-          ${state.purchases
+          ${state.viewLoading && !state.purchases.length
+            ? tableSkeletonHTML(7)
+            : state.purchases
             .map((p) => {
               const paid = Number(p.paid) || 0;
               const total = Number(p.total) || 0;
               const status = paid >= total - 0.009 ? "paid" : paid > 0 ? "partial" : "unpaid";
               return `<tr>
-                <td>${esc(p.purchase_no)}</td><td>${esc(fmtDateTime(p.created_at))}</td><td>${esc(p.party_name)}</td>
+                <td>${esc(p.purchase_no)}</td><td><div>${fmtD(p.created_at)}</div><div class="muted fs-12">${fmtT(p.created_at)}</div></td><td>${esc(p.party_name)}</td>
                 <td class="num">₹ ${money(total)}</td><td class="num">₹ ${money(paid)}</td>
                 <td><span class="badge badge-${status}">${status}</span></td>
                 <td class="actions-col">
@@ -2964,11 +3083,12 @@ function renderPurchases(view) {
                 </td>
               </tr>`;
             })
-            .join("") || `<tr><td colspan="7" class="empty-state-cell">No purchases found for this period.</td></tr>`}
+            .join("") || `<tr><td colspan="7" class="empty-state-cell">${emptyStateHTML({ title: "No purchases found", hint: "No purchases were recorded for this period.", action: '<button class="btn sm" id="emptyAddPurchase">Add purchase</button>' })}</td></tr>`}
         </tbody>
       </table>
     </div>`;
   document.getElementById("newPurchase").addEventListener("click", () => switchView("new-purchase"));
+  document.getElementById("emptyAddPurchase")?.addEventListener("click", () => switchView("new-purchase"));
   wireDateFilter(view, (f, from, to) => {
     state.purchaseFilter = f;
     if (from) { state.purchaseFrom = from; state.purchaseTo = to; }
@@ -3002,7 +3122,7 @@ function renderPurchases(view) {
           const pur = state.purchases.find((x) => String(x.id) === String(id));
           const passcode = await askPasscode(`Delete purchase ${pur ? pur.purchase_no : ""}`);
           if (passcode === null) return;
-          const reason = prompt("Reason for deleting");
+          const reason = await promptDialog({ title: "Reason for deleting", label: "Reason", placeholder: "e.g. duplicate bill" });
           if (reason === null) return;
           await api(`/api/purchases/${id}`, { method: "DELETE", body: { passcode, reason: reason || "" } });
           setStatus("Purchase deleted", "ok");
@@ -3260,17 +3380,19 @@ function makeResizable(table) {
 function renderNewPurchase(view) {
   const suppliers = state.parties.filter((p) => p.type === "supplier");
   view.innerHTML = `
-    <div class="toolbar">
-      <button type="button" class="btn ghost" id="purBack">← Back</button>
-      <h3 class="m-0">New purchase</h3>
+    <div class="page-head">
+      <button type="button" class="btn ghost sm" id="purBack">${navIcon("chevron-left")} Back</button>
+      <h2>Add purchase</h2>
     </div>
     <div class="pur-pos">
       <div class="pur-pos-left">
         <div class="pur-search-wrap">
           <label for="purSearch" class="pur-search-label">Search product / barcode</label>
-          <div class="pur-search">
-            <input id="purSearch" type="text" placeholder="Type product name or barcode" autocomplete="off" />
-            <div id="purSugg" class="pur-suggestions" style="display:none"></div>
+          <div class="pur-search search-row">
+            <div class="search-input-wrap">
+              <input id="purSearch" type="text" placeholder="Scan barcode or search product" autocomplete="off" aria-label="Product search" />
+              <div id="purSugg" class="pur-suggestions" style="display:none"></div>
+            </div>
           </div>
         </div>
         <div class="items-table-section">
@@ -3296,7 +3418,7 @@ function renderNewPurchase(view) {
             </table>
           </div>
         </div>
-        <div class="form-error mt-8" id="purTableError" style="display:none"></div>
+        <div class="form-error mt-8" id="purTableError" role="alert" style="display:none"></div>
       </div>
       <div class="pur-pos-right">
         <form id="purForm" class="order-summary">
@@ -3311,7 +3433,7 @@ function renderNewPurchase(view) {
           <div class="summary-row"><span>Tax</span><span id="purTax">₹ 0.00</span></div>
           <div class="summary-row total"><span>Total</span><span id="purTotal">₹ 0.00</span></div>
           <label class="full">Paid
-            <input name="paid" id="purPaid" type="number" step="1" value="0" />
+            <input name="paid" id="purPaid" type="number" step="1" value="0" inputmode="decimal" />
           </label>
           <div class="summary-row"><span>Balance</span><span id="purBalance">₹ 0.00</span></div>
           <div class="full mt-12">
@@ -3524,25 +3646,36 @@ function renderNewPurchase(view) {
 }
 
 function renderExpenses(view) {
+  const expCats = [...new Set((state.expenses || []).map((e) => e.category).filter(Boolean))];
   view.innerHTML = `
-    <form class="toolbar" id="expForm">
-      <input name="category" placeholder="Category (rent, power...)" />
-      <input name="amount" type="number" required min="0.01" step="any" placeholder="Amount" />
-      <input name="note" class="grow" placeholder="Note" />
+    <form class="toolbar card exp-form" id="expForm">
+      <input name="category" placeholder="Category (rent, power…)" aria-label="Expense category" list="expCats" />
+      <datalist id="expCats">${expCats.map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>
+      <input name="amount" type="number" required min="0.01" step="any" placeholder="Amount" aria-label="Expense amount" />
+      <input name="note" class="grow" placeholder="Note" aria-label="Expense note" />
       <button class="btn">Add expense</button>
     </form>
     <div class="card table-wrap">
       <table class="data-table expenses-list">
         <thead><tr><th>Category</th><th class="num">Amount</th><th>Note</th><th>Date</th><th class="actions-col"></th></tr></thead>
         <tbody>
-          ${state.expenses
+          ${state.viewLoading && !state.expenses.length
+            ? tableSkeletonHTML(5)
+            : state.expenses
             .map(
               (e) => `<tr>
-                <td>${esc(e.category)}</td><td class="num">₹ ${money(e.amount)}</td><td class="note-cell">${esc(e.note)}</td><td>${esc(e.created_at)}</td>
-                <td class="actions-col"><button class="btn danger sm" data-del="${e.id}">Delete</button></td>
+                <td>${esc(e.category)}</td><td class="num">₹ ${money(e.amount)}</td><td class="note-cell">${esc(e.note)}</td><td>${esc(fmtDateTime(e.created_at))}</td>
+                <td class="actions-col">
+                  <div class="row-menu-wrap">
+                    <button class="btn ghost sm icon-btn" data-menu="${e.id}" aria-haspopup="menu" aria-expanded="false" title="Actions">⋯</button>
+                    <div class="row-menu" id="rmenu-exp-${e.id}" role="menu">
+                      <button class="danger" data-del="${e.id}" role="menuitem">Delete</button>
+                    </div>
+                  </div>
+                </td>
               </tr>`
             )
-            .join("") || `<tr><td colspan="5" class="empty-state-cell">No expenses recorded yet.</td></tr>`}
+            .join("") || `<tr><td colspan="5" class="empty-state-cell">${emptyStateHTML({ title: "No expenses recorded", hint: "Add an expense using the form above." })}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -3551,13 +3684,30 @@ function renderExpenses(view) {
     const fd = Object.fromEntries(new FormData(e.target).entries());
     try {
       await api("/api/expenses", { method: "POST", body: fd });
+      e.target.reset();
+      showToast("Expense added");
       await loadExpenses();
     } catch (err) {
       setStatus(err.message, "error");
     }
   });
+  view.querySelectorAll("[data-menu]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById(`rmenu-exp-${btn.dataset.menu}`);
+      const wasOpen = menu.classList.contains("open");
+      closeRowMenus();
+      if (!wasOpen) {
+        menu.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
+        positionRowMenu(btn, menu);
+      }
+    });
+  });
   view.querySelectorAll("[data-del]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      closeRowMenus();
+      if (!(await confirmDialog({ title: "Delete this expense?" }))) return;
       await api(`/api/expenses/${btn.dataset.del}`, { method: "DELETE" });
       await loadExpenses();
     });
@@ -3568,7 +3718,7 @@ function renderReports(view) {
   if (window.ReportsModule) {
     ReportsModule.render(view);
   } else {
-    view.innerHTML = `<div class="rpt-empty">Reports module failed to load.</div>`;
+    view.innerHTML = `<div class="rpt-empty">${emptyStateHTML({ icon: "alert", title: "Reports module failed to load." })}</div>`;
   }
 }
 
@@ -3881,7 +4031,7 @@ function renderSettings(view) {
           </select>
         </label>
         <label class="check"><input type="checkbox" name="whatsapp_auto_send" ${s.whatsapp_auto_send === "1" ? "checked" : ""} /> Automatically send bills on WhatsApp after sale</label>
-        <p class="help full">WhatsApp connection is managed from the WhatsApp Billing card on the right — no technical details are needed.</p>
+        <p class="help full">WhatsApp connection is managed in the WhatsApp section below — no technical details are needed.</p>
 
         <h3 class="full">Backups</h3>
         <label class="check"><input type="checkbox" name="drive_auto_backup" ${s.drive_auto_backup === "1" ? "checked" : ""} /> Enable automatic Google Drive backup</label>
@@ -3907,7 +4057,7 @@ function renderSettings(view) {
         </label>
         ${s.bill_passcode_set ? `<label class="check"><input type="checkbox" name="bill_passcode_clear" /> Remove passcode</label>` : ""}
 
-        <div class="full"><button class="btn" type="submit">Save settings</button></div>
+        <div class="full form-actions"><button class="btn" type="submit">Save settings</button></div>
       </form>
       <div class="card" data-sec="appearance">
         <h3>Appearance</h3>
@@ -3977,9 +4127,9 @@ function renderSettings(view) {
       <div class="card" data-sec="users">
         <h3>Users</h3>
         <form id="userForm" class="toolbar">
-          <input name="username" placeholder="Username" />
-          <input name="password" type="password" placeholder="Password" />
-          <select name="role"><option>cashier</option><option>manager</option><option>admin</option></select>
+          <input name="username" placeholder="Username" aria-label="Username" />
+          <input name="password" type="password" placeholder="Password" aria-label="Password" />
+          <select name="role" aria-label="Role"><option>cashier</option><option>manager</option><option>admin</option></select>
           <button class="btn">Add user</button>
         </form>
         <div class="table-wrap">
@@ -3989,10 +4139,10 @@ function renderSettings(view) {
               (u) =>
                 `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td class="actions-col"><button class="btn danger sm" data-delu="${u.id}">Delete</button></td></tr>`
             )
-            .join("") || `<tr><td colspan="3" class="empty-state-cell">No users yet.</td></tr>`}</tbody></table>
+            .join("") || `<tr><td colspan="3" class="empty-state-cell">${emptyStateHTML({ icon: "inbox", title: "No users yet" })}</td></tr>`}</tbody></table>
         </div>
         <form id="pwForm" class="toolbar">
-          <input name="password" type="password" placeholder="Change my password" />
+          <input name="password" type="password" placeholder="Change my password" aria-label="New password" />
           <button class="btn ghost">Update password</button>
         </form>
       </div>
@@ -4036,7 +4186,7 @@ function renderSettings(view) {
       <div class="card" data-sec="about">
         <h3>About</h3>
         <p class="muted"><b>MartPOS</b> · Version ${esc((state.about || {}).version || "1.0.0")} · Database v${esc(String((state.about || {}).schema_version || "—"))}</p>
-        <p class="muted">Data folder: <code>${esc((state.about || {}).data_dir || "")}</code></p>
+        <p class="muted break-path">Data folder: <code>${esc((state.about || {}).data_dir || "")}</code></p>
         <p class="muted">Last cloud backup: ${esc(d.last_backup_at ? fmtDateTime(d.last_backup_at) : "never")}</p>
       </div>
       </div>
@@ -4148,7 +4298,7 @@ function renderSettings(view) {
   });
   document.getElementById("backupList")?.addEventListener("click", () => openBackupCenter());
   document.getElementById("drvOff")?.addEventListener("click", async () => {
-    if (!confirm("Disconnect Google Drive? Existing backups stay on Drive; automatic backup is turned off.")) return;
+    if (!(await confirmDialog({ title: "Disconnect Google Drive?", message: "Existing backups stay on Drive; automatic backup is turned off.", confirmLabel: "Disconnect" }))) return;
     const data = await api("/api/drive/disconnect", { method: "POST", body: {} });
     state.drive = data.drive;
     setStatus("Google Drive disconnected", "ok");
@@ -4172,6 +4322,8 @@ function renderSettings(view) {
   });
   view.querySelectorAll("[data-delu]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      const u = (state.users || []).find((x) => String(x.id) === String(btn.dataset.delu));
+      if (!(await confirmDialog({ title: `Delete user ${u ? u.username : ""}?` }))) return;
       const data = await api(`/api/users/${btn.dataset.delu}`, { method: "DELETE" });
       state.users = data.users;
       renderView();
@@ -4191,6 +4343,21 @@ function renderSettings(view) {
       secBtns.forEach((x) => x.classList.toggle("active", x === b));
     });
   });
+  const secEls = [...view.querySelectorAll(".settings-content [data-sec]")];
+  if ("IntersectionObserver" in window && secEls.length) {
+    const obs = new IntersectionObserver((entries) => {
+      const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (!visible.length) return;
+      const sec = visible[0].target.dataset.sec;
+      secBtns.forEach((x) => x.classList.toggle("active", x.dataset.sec === sec));
+    }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
+    secEls.forEach((el) => obs.observe(el));
+    const prevCleanup = view._cleanup;
+    view._cleanup = () => {
+      obs.disconnect();
+      if (prevCleanup) prevCleanup();
+    };
+  }
   view.querySelectorAll("[data-theme-pref]").forEach((b) => {
     b.addEventListener("click", () => {
       setThemePref(b.dataset.themePref);
@@ -4313,17 +4480,18 @@ async function confirmRestore(sel) {
 }
 
 let modalReturnFocus = null;
+let modalOnClose = null;
 function openModal(html, formId = null, cardClass = "") {
   modalReturnFocus = document.activeElement;
   const footer = formId
     ? `<div class="modal-footer">
-        <button type="button" class="btn ghost" id="closeModal" aria-label="Close dialog">Close</button>
+        <button type="button" class="btn ghost" id="closeModal" aria-label="Close dialog">Cancel</button>
         <button type="submit" form="${formId}" class="btn" id="saveModal">Save</button>
       </div>`
     : `<div class="modal-footer">
         <button type="button" class="btn ghost" id="closeModal" aria-label="Close dialog">Close</button>
       </div>`;
-  modalEl.innerHTML = `<div class="modal-card ${esc(cardClass)}" role="dialog" aria-modal="true" tabindex="-1">${html}${footer}</div>`;
+  modalEl.innerHTML = `<div class="modal-card ${esc(cardClass)}" role="dialog" aria-modal="true" tabindex="-1"><button type="button" class="modal-x" aria-label="Close dialog">${navIcon("x")}</button>${html}${footer}</div>`;
   const card = modalEl.querySelector(".modal-card");
   const heading = card.querySelector("h3");
   if (heading) {
@@ -4331,7 +4499,9 @@ function openModal(html, formId = null, cardClass = "") {
     card.setAttribute("aria-labelledby", "modalTitle");
   }
   modalEl.setAttribute("aria-hidden", "false");
+  modalOnClose = null;
   document.getElementById("closeModal").addEventListener("click", closeModal);
+  card.querySelector(".modal-x").addEventListener("click", closeModal);
   modalEl.onclick = (e) => {
     if (e.target === modalEl) closeModal();
   };
@@ -4346,13 +4516,119 @@ function openModal(html, formId = null, cardClass = "") {
 }
 
 function closeModal() {
+  const onClose = modalOnClose;
+  modalOnClose = null;
   modalEl.setAttribute("aria-hidden", "true");
   modalEl.innerHTML = "";
   modalEl.onclick = null;
+  if (onClose) onClose();
   if (modalReturnFocus && modalReturnFocus.isConnected) {
     modalReturnFocus.focus({ preventScroll: true });
   }
   modalReturnFocus = null;
+}
+
+// Renders a small form dialog for confirmDialog/promptDialog. Reuses the
+// shared modal when free; stacks a second overlay when a modal (e.g. the
+// edit-bill sheet) is already open so the parent dialog survives.
+function dialogLayer(html, formId) {
+  const nested = modalEl.getAttribute("aria-hidden") === "false";
+  const api = { card: null, close: null, onCancel: null };
+  if (!nested) {
+    openModal(html, formId);
+    api.card = modalEl.querySelector(".modal-card");
+    api.close = (ok) => {
+      modalOnClose = null;
+      closeModal();
+    };
+    modalOnClose = () => { if (api.onCancel) api.onCancel(); };
+    return api;
+  }
+  const host = document.createElement("div");
+  host.className = "modal modal-nested";
+  host.setAttribute("aria-hidden", "false");
+  host.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true" tabindex="-1"><button type="button" class="modal-x" aria-label="Close dialog">${navIcon("x")}</button>${html}${
+    formId ? `<div class="modal-footer"><button type="button" class="btn ghost" data-dlg-cancel>Cancel</button><button type="submit" form="${formId}" class="btn" data-dlg-save>Save</button></div>` : ""
+  }</div>`;
+  document.body.appendChild(host);
+  api.card = host.querySelector(".modal-card");
+  const heading = api.card.querySelector("h3");
+  if (heading) {
+    heading.id = "dlgTitle";
+    api.card.setAttribute("aria-labelledby", "dlgTitle");
+  }
+  let closed = false;
+  const escBlock = (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      api.close(false);
+    }
+  };
+  api.close = (ok) => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener("keydown", escBlock, true);
+    host.remove();
+    if (!ok && api.onCancel) api.onCancel();
+  };
+  document.addEventListener("keydown", escBlock, true);
+  host.addEventListener("mousedown", (e) => {
+    if (e.target === host) api.close(false);
+  });
+  api.card.querySelector("[data-dlg-cancel]")?.addEventListener("click", () => api.close(false));
+  api.card.querySelector(".modal-x")?.addEventListener("click", () => api.close(false));
+  queueMicrotask(() => {
+    const target = api.card.querySelector("[autofocus]") || api.card;
+    target.focus({ preventScroll: true });
+  });
+  return api;
+}
+
+function confirmDialog({ title, message = "", confirmLabel = "Delete", cancelLabel = "Cancel", danger = true }) {
+  return new Promise((resolve) => {
+    const dlg = dialogLayer(
+      `<form id="cfDlg"><h3>${esc(title)}</h3>${message ? `<p class="help">${esc(message)}</p>` : ""}</form>`,
+      "cfDlg"
+    );
+    dlg.onCancel = () => resolve(false);
+    const saveBtn = dlg.card.querySelector("[data-dlg-save], #saveModal");
+    if (saveBtn) {
+      saveBtn.textContent = confirmLabel;
+      saveBtn.className = danger ? "btn danger" : "btn";
+    }
+    const cancelBtn = dlg.card.querySelector("[data-dlg-cancel], #closeModal");
+    if (cancelBtn) cancelBtn.textContent = cancelLabel;
+    dlg.card.querySelector("#cfDlg").addEventListener("submit", (e) => {
+      e.preventDefault();
+      dlg.close(true);
+      resolve(true);
+    });
+  });
+}
+
+function promptDialog({ title, message = "", label = "", placeholder = "", value = "", confirmLabel = "Continue", type = "text", required = false, inputmode = "" }) {
+  return new Promise((resolve) => {
+    const dlg = dialogLayer(
+      `<form id="prDlg">
+        <h3>${esc(title)}</h3>
+        ${message ? `<p class="help">${esc(message)}</p>` : ""}
+        <label>${esc(label)}<input name="value" type="${esc(type)}" placeholder="${esc(placeholder)}" value="${esc(value)}" ${required ? "required" : ""} ${inputmode ? `inputmode="${esc(inputmode)}"` : ""} autofocus /></label>
+      </form>`,
+      "prDlg"
+    );
+    dlg.onCancel = () => resolve(null);
+    const saveBtn = dlg.card.querySelector("[data-dlg-save], #saveModal");
+    if (saveBtn) saveBtn.textContent = confirmLabel;
+    const input = dlg.card.querySelector('#prDlg input[name="value"]');
+    if (input) input.select();
+    dlg.card.querySelector("#prDlg").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = String(new FormData(e.target).get("value") || "").trim();
+      if (required && !v) return;
+      dlg.close(true);
+      resolve(v);
+    });
+  });
 }
 
 let quaggaRunning = false;
@@ -4414,7 +4690,9 @@ function closeRowMenus() {
   document.querySelectorAll(".actions-col.menu-open").forEach((c) => c.classList.remove("menu-open"));
   document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach((b) => b.setAttribute("aria-expanded", "false"));
 }
+let rowMenuOpenedAt = 0;
 function positionRowMenu(btn, menu) {
+  rowMenuOpenedAt = Date.now();
   menu.closest(".actions-col")?.classList.add("menu-open");
   const r = btn.getBoundingClientRect();
   const mh = menu.offsetHeight;
@@ -4438,7 +4716,10 @@ document.addEventListener("click", (e) => {
     colsMenu.classList.remove("open");
   }
 });
-window.addEventListener("scroll", closeRowMenus, true);
+window.addEventListener("scroll", () => {
+  if (Date.now() - rowMenuOpenedAt < 250) return;
+  closeRowMenus();
+}, true);
 window.addEventListener("resize", closeRowMenus);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -4461,9 +4742,20 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     document.getElementById("productSearch")?.focus();
   }
-  if (e.key === "F8" && state.view === "pos") {
+  if (e.key === "F4" && state.view === "pos") {
     e.preventDefault();
-    chargeBill();
+    const paid = document.getElementById("paidInput");
+    if (paid) {
+      paid.focus();
+      paid.select();
+    }
+  }
+  if ((e.key === "F8" || e.key === "F9") && state.view === "pos") {
+    if (modalEl.getAttribute("aria-hidden") !== "true") return;
+    e.preventDefault();
+    if (!state.cart.items.length) return setStatus("Cart is empty", "error");
+    if (e.key === "F8") chargeBill();
+    else printBill();
   }
 });
 
@@ -4477,13 +4769,19 @@ async function loadDashboard() {
     state.dashError = err.message;
     state.dashboard = null;
   }
-  if (state.view === "dashboard") renderView();
+  if (state.view === "dashboard") {
+    state.viewLoading = false;
+    renderView();
+  }
 }
 async function loadItems(rerender = true) {
   const data = await api(`/api/items?q=&category=${encodeURIComponent(state.category || "")}`);
   state.items = data.items;
   state.categories = data.categories;
-  if (rerender) renderView();
+  if (rerender) {
+    state.viewLoading = false;
+    renderView();
+  }
 }
 async function loadPos() {
   await Promise.all([loadItems(false), loadParties(false)]);
@@ -4526,7 +4824,10 @@ async function addPosTab() {
 }
 async function loadParties(rerender = true) {
   state.parties = (await api("/api/parties")).parties;
-  if (rerender) renderView();
+  if (rerender) {
+    state.viewLoading = false;
+    renderView();
+  }
 }
 async function loadSales() {
   let url = "/api/invoices";
@@ -4535,6 +4836,7 @@ async function loadSales() {
     url += `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
   }
   state.invoices = (await api(url)).invoices;
+  state.viewLoading = false;
   renderView();
 }
 async function loadPurchases() {
@@ -4546,10 +4848,12 @@ async function loadPurchases() {
     url += `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
   }
   state.purchases = (await api(url)).purchases;
+  state.viewLoading = false;
   renderView();
 }
 async function loadExpenses() {
   state.expenses = (await api("/api/expenses")).expenses;
+  state.viewLoading = false;
   renderView();
 }
 async function loadReports() {
@@ -4564,6 +4868,7 @@ async function loadSettings() {
   state.whatsapp = data.whatsapp || {};
   state.about = data.about || null;
   state.users = data.users || [];
+  state.viewLoading = false;
   renderView();
 }
 

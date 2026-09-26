@@ -840,15 +840,15 @@ const ReportsModule = (() => {
       return;
     }
     if (s.error) {
-      el.innerHTML = `<div class="rpt-empty">Could not load report: ${esc(s.error)}</div>`;
+      el.innerHTML = `<div class="rpt-empty">${emptyStateHTML({ icon: 'alert', title: 'Could not load report', hint: s.error })}</div>`;
       return;
     }
     if (def.picker && !s.filters[def.picker.param]) {
-      el.innerHTML = `<div class="rpt-empty">Select ${/^[aeiou]/i.test(def.picker.label) ? 'an' : 'a'} ${esc(def.picker.label.toLowerCase())} to view this report.</div>`;
+      el.innerHTML = `<div class="rpt-empty">${emptyStateHTML({ icon: 'search', title: `Select ${/^[aeiou]/i.test(def.picker.label) ? 'an' : 'a'} ${def.picker.label.toLowerCase()} to view this report.` })}</div>`;
       return;
     }
     if (!s.data) {
-      el.innerHTML = `<div class="rpt-empty">No data loaded.</div>`;
+      el.innerHTML = `<div class="rpt-empty">${emptyStateHTML({ icon: 'inbox', title: 'No data loaded.' })}</div>`;
       return;
     }
 
@@ -878,7 +878,7 @@ const ReportsModule = (() => {
     if (columns.length) {
       html += renderTable(columns, rows, def);
     } else if (!def.cards) {
-      html += `<div class="rpt-empty">No data found for the selected period.</div>`;
+      html += `<div class="rpt-empty">${emptyStateHTML({ icon: 'inbox', title: 'No data found for the selected period.' })}</div>`;
     }
 
     if (def.server) html += renderPagination();
@@ -959,7 +959,7 @@ const ReportsModule = (() => {
       <div class="card table-wrap rpt-table-wrap">
         <table class="rpt-table">
           <thead><tr>${columns.map(c =>
-            `<th data-sort="${esc(c.k)}" tabindex="0"${s.sortKey === c.k ? ` aria-sort="${s.sortDir === 1 ? 'ascending' : 'descending'}"` : ''} class="${c.t === 'money' || c.t === 'num' || c.t === 'qty' || c.t === 'pct' ? 'num' : ''}">
+            `<th data-sort="${esc(c.k)}" role="button" tabindex="0"${s.sortKey === c.k ? ` aria-sort="${s.sortDir === 1 ? 'ascending' : 'descending'}"` : ''} class="${c.t === 'money' || c.t === 'num' || c.t === 'qty' || c.t === 'pct' ? 'num' : ''}">
               ${esc(c.l)}${s.sortKey === c.k ? (s.sortDir === 1 ? ' ▲' : ' ▼') : ''}</th>`
           ).join('')}</tr></thead>
           <tbody>
@@ -978,7 +978,7 @@ const ReportsModule = (() => {
                 return `<td>${v}</td>`;
               }
               return `<td class="${cls}">${typeof v === 'string' && v.includes('₹') ? v : esc(v)}</td>`;
-            }).join('')}</tr>`).join('') || `<tr><td colspan="${columns.length}" class="rpt-empty-cell">No data found for the selected period.</td></tr>`}
+            }).join('')}</tr>`).join('') || `<tr><td colspan="${columns.length}" class="rpt-empty-cell">${emptyStateHTML({ icon: 'inbox', title: 'No data found for the selected period.' })}</td></tr>`}
           </tbody>
           ${hasTotals ? `<tfoot><tr>${columns.map((c, i) =>
             `<td class="${c.t === 'money' || c.t === 'num' || c.t === 'qty' || c.t === 'pct' ? 'num' : ''}">${i === 0 ? 'Total' : c.total ? (c.t === 'money' ? fmtMoney(totals[c.k]) : fmtNum(totals[c.k])) : ''}</td>`
@@ -997,9 +997,9 @@ const ReportsModule = (() => {
     const cur = s.data.page || 1;
     return `
       <div class="rpt-pagination">
-        <button class="btn ghost sm" data-page="${cur - 1}" ${cur <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button class="btn ghost sm" data-page="${cur - 1}" aria-label="Previous page" ${cur <= 1 ? 'disabled' : ''}>← Prev</button>
         <span>Page ${cur} of ${pages}</span>
-        <button class="btn ghost sm" data-page="${cur + 1}" ${cur >= pages ? 'disabled' : ''}>Next →</button>
+        <button class="btn ghost sm" data-page="${cur + 1}" aria-label="Next page" ${cur >= pages ? 'disabled' : ''}>Next →</button>
       </div>`;
   }
 
@@ -1027,7 +1027,7 @@ const ReportsModule = (() => {
   }
 
   async function openSessionFlow() {
-    const amount = prompt('Opening cash in drawer (₹):', '0');
+    const amount = await promptDialog({ title: 'Open cash session', label: 'Opening cash in drawer (₹)', type: 'number', inputmode: 'decimal', value: '0' });
     if (amount === null) return;
     try {
       await api('/api/cash-session/open', { method: 'POST', body: { opening_cash: parseFloat(amount) || 0 } });
@@ -1041,7 +1041,7 @@ const ReportsModule = (() => {
   async function closeSessionFlow() {
     const sess = state.cashSession;
     const expected = sess && sess.figures ? sess.figures.expected_cash : 0;
-    const amount = prompt(`Expected cash: ${fmtMoney(expected)}\nEnter actual counted cash (₹):`, expected);
+    const amount = await promptDialog({ title: 'Close cash session', message: `Expected cash: ${fmtMoney(expected)}`, label: 'Actual counted cash (₹)', type: 'number', inputmode: 'decimal', value: String(expected) });
     if (amount === null) return;
     try {
       await api('/api/cash-session/close', { method: 'POST', body: { closing_cash: parseFloat(amount) || 0 } });
@@ -1060,7 +1060,7 @@ const ReportsModule = (() => {
       return;
     }
     if (s.error) {
-      el.innerHTML = `<div class="rpt-empty">Could not load report: ${esc(s.error)}</div>`;
+      el.innerHTML = `<div class="rpt-empty">${emptyStateHTML({ icon: 'alert', title: 'Could not load report', hint: s.error })}</div>`;
       return;
     }
     const d = s.data || {};
@@ -1090,7 +1090,7 @@ const ReportsModule = (() => {
         M('gross', 'Sales'), M('returns', 'Returns'), M('net_sales', 'Net Sales'), M('profit', 'Profit'),
       ], d.by_day, {});
     } else {
-      html += `<div class="rpt-empty">No sales found for the selected period.</div>`;
+      html += `<div class="rpt-empty">${emptyStateHTML({ icon: 'inbox', title: 'No sales found for the selected period.' })}</div>`;
     }
     el.innerHTML = html;
   }

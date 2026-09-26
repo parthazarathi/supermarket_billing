@@ -298,7 +298,7 @@
     const clearBtn = document.getElementById("aiKeyClear");
     if (clearBtn) {
       clearBtn.addEventListener("click", async () => {
-        if (!confirm("Remove the saved OpenAI API key? AI Store Manager will stop working.")) return;
+        if (!(await confirmDialog({ title: "Remove the saved OpenAI API key?", message: "AI Store Manager will stop working.", confirmLabel: "Remove" }))) return;
         try {
           const res = await api("/api/ai/config", { method: "POST", body: { api_key: "" } });
           if (state.ai) state.ai.status = res.ai;
