@@ -46,6 +46,8 @@ check('UP-REL-002', 'array notes flattened',
 check('UP-REL-003', 'empty notes -> empty list', releaseNotesLines(null).length === 0);
 check('UP-REL-004', 'headings and blanks stripped',
   JSON.stringify(releaseNotesLines('## What is new\n\n- A fix')) === JSON.stringify(['What is new', 'A fix']));
+check('UP-REL-005', 'html notes from atom feed stripped',
+  JSON.stringify(releaseNotesLines('<ul>\n<li>Faster billing</li>\n<li>Bug fixes &amp; polish</li>\n</ul>')) === JSON.stringify(['Faster billing', 'Bug fixes & polish']));
 
 // ---------- feed resolution ----------
 check('UP-FEED-001', 'no overrides -> baked-in feed',
