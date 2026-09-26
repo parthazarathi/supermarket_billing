@@ -1,0 +1,9 @@
+- Fixed the update "What's new" notes showing raw HTML tags
+- Walk-in sales now file under the "Walk-in Customer" account - bills without a selected customer stay grouped, and older walk-in bills are adopted automatically
+- Customer history: removed the separate "Paid at billing" row - the billed amount and received amount show on one line; payments received later still appear as receipt entries
+- Customer history footer now shows total profit for that customer
+- Sidebar can now be expanded on smaller windows (under 1400px) with the toggle button
+- Settings page is now a single column in the same order as the section list
+- Receipt option toggles are neatly aligned in a grid
+- Number input up/down arrows removed across the app
+- Interface polish: refined sizing, dialog and empty-state styling
