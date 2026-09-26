@@ -334,8 +334,10 @@ function updateCardHtml() {
     ${canCheck ? `<div class="toolbar"><button class="btn ghost" id="updCheck">Check for Updates</button></div>` : ""}
     ${desktop && u && u.supported ? `
       <p class="help">Automatic updates</p>
-      <label class="check"><input type="checkbox" id="updAutoCheck" ${s.update_auto_check !== "0" ? "checked" : ""} /> Check automatically</label>
-      <label class="check"><input type="checkbox" id="updAutoDl" ${s.update_auto_download !== "0" ? "checked" : ""} /> Download updates automatically</label>` : ""}
+      <div class="upd-toggles">
+        <label class="check"><input type="checkbox" id="updAutoCheck" ${s.update_auto_check !== "0" ? "checked" : ""} /> Check automatically</label>
+        <label class="check"><input type="checkbox" id="updAutoDl" ${s.update_auto_download !== "0" ? "checked" : ""} /> Download updates automatically</label>
+      </div>` : ""}
     <div id="updMsg" class="help"></div>`;
 }
 

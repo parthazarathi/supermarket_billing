@@ -976,7 +976,7 @@ select {
   align-items: center;
   gap: 0.714rem;
 }
-.form-grid label.check, .receipt-toggles .check {
+.form-grid label.check, .receipt-toggles .check, .upd-toggles .check {
   flex-direction: row;
   align-items: center;
   gap: 0.714rem;
@@ -1114,6 +1114,7 @@ label.check input[type="checkbox"]:disabled {
   margin-bottom: var(--space-4);
   align-items: center;
 }
+.table-wrap + .toolbar { margin-top: var(--space-4); }
 .filter-toolbar { margin-bottom: 1rem; }
 .toolbar-count { margin-left: auto; }
 .exp-form { padding: 0.75rem 1rem; }
@@ -2906,6 +2907,12 @@ kbd {
   transition: width 0.3s ease;
 }
 .upd-error { color: var(--error-text); }
+.upd-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.714rem 2rem;
+  margin: 0.429rem 0;
+}
 
 /* ============================================================
    Print
