@@ -41,7 +41,6 @@ const { createCreditNote, createDebitNote, listCreditNotes, listDebitNotes, getC
 const { createPurchaseOrder, listPurchaseOrders, getPurchaseOrder, getPurchaseOrderByNo, updatePurchaseOrderStatus, convertPurchaseOrderToPurchase, deletePurchaseOrder } = require('./lib/purchaseOrders');
 const { listAccounts, getAccount, saveAccount, deleteAccount, createTransaction, listAccountTransactions, getDefaultAccount } = require('./lib/accounts');
 const aiService = require('./lib/ai/service');
-const googleAuth = require('./lib/ai/googleAuth');
 const { listAiAudit } = require('./lib/ai/audit');
 
 const ROLE_LEVEL = { cashier: 1, manager: 2, admin: 3 };
@@ -2360,9 +2359,9 @@ app.post('/api/ai/config', requireRole('admin'), (req, res) => {
 // the browser flow finishes, so the UI shows a "finish in browser" state.
 app.post('/api/ai/google/connect', requireRole('admin'), async (req, res) => {
   try {
-    const identity = await googleAuth.signIn();
-    audit(req, 'update', 'settings', '', `AI Google account connected (${identity.email || 'unknown'})`);
-    res.json({ ok: true, google: identity });
+    const result = await aiService.connectGoogle();
+    audit(req, 'update', 'settings', '', `AI Google account connected (${result.google.email || 'unknown'})`);
+    res.json({ ok: true, google: result.google, provisioned: result.provisioned, provider_error: result.provider_error });
   } catch (error) {
     res.status(400).json(jsonError(errMsg(error)));
   }
@@ -2371,7 +2370,7 @@ app.post('/api/ai/google/connect', requireRole('admin'), async (req, res) => {
 // Disconnect: clears the linked identity only. Business data, POS users and
 // stored settings are untouched; Google tokens are never persisted at all.
 app.post('/api/ai/google/disconnect', requireRole('admin'), (req, res) => {
-  const result = googleAuth.disconnect();
+  const result = aiService.disconnectGoogle();
   audit(req, 'update', 'settings', '', 'AI Google account disconnected');
   res.json({ ok: true, google: result });
 });

@@ -367,6 +367,41 @@ async function main() {
   const rRes = await cloudProv.generateResponse({ messages: [{ role: 'user', content: 'hi' }] });
   check('AI-CLOUD-005', 'auth failure re-fetches rotated key + retries', rRes.message.content === 'rotated ok' && gemCalls === 2 && lastKey === 'AIza-vendored-rotated');
   check('AI-CLOUD-006', 'rotated key cached in secrets', secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-rotated');
+
+  // Vendored OAuth client: no credentials.json needed on linked installs.
+  const gauth2 = require('../lib/ai/googleAuth');
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/v1/ai/credential')) {
+      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-999', google_client_id: 'cid.apps.googleusercontent.com' }) };
+    }
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }) };
+  };
+  const gcfg = await gauth2.oauthClientConfigAsync();
+  check('AI-CLOUD-007', 'oauth client resolved from gateway', gcfg.client_id === 'cid.apps.googleusercontent.com');
+
+  // Post-sign-in provisioning: vendored key + probe -> ready.
+  const provOk = await service.provisionAndTest();
+  check('AI-CLOUD-008', 'provisioning probe succeeds on vendored key', provOk.ok === true);
+
+  // Gateway/Gemini outage -> soft failure, never a crash.
+  globalThis.fetch = async () => { throw new Error('gateway down'); };
+  const provFail = await service.provisionAndTest();
+  check('AI-CLOUD-009', 'outage -> provisioning fails softly', provFail.ok === false);
+
+  // Remove Account clears the linked identity AND the cached vendored key.
+  const dcRes = service.disconnectGoogle();
+  check('AI-CLOUD-010', 'remove account clears identity + vendored key',
+    dcRes.connected === false && gauth2.identity().connected === false && secretsLib.getSecret('gemini_api_key_cloud') === '');
+
+  // Re-link the test identity the remaining chat/disconnect tests rely on.
+  require('../lib/settings').setSettings({
+    ai_google_sub: 'google-sub-test-1',
+    ai_google_email: 'shopadmin@example.com',
+    ai_google_name: 'Shop Admin',
+    ai_google_connected_at: new Date().toISOString(),
+    ai_google_last_login: new Date().toISOString()
+  });
+
   globalThis.fetch = realFetch3;
   delete process.env.MARTPOS_CLOUD_URL;
   secretsLib.setSecret('cloud_device_token', '');

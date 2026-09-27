@@ -115,7 +115,7 @@
         ${needsGoogle ? `
           <div class="card ai-notice">
             <p><b>AI Store Manager is not connected.</b></p>
-            <p class="muted">${can("admin") ? "Sign in with your Google account under Settings → AI Store Manager." : "Ask an admin to connect a Google account in Settings."} Your POS billing works normally without it.</p>
+            <p class="muted">${can("admin") ? "Connect a Google account under Settings → AI Store Manager." : "Ask an admin to connect a Google account in Settings."} Your POS billing works normally without it.</p>
             ${can("admin") ? `<button class="btn sm" id="aiGoSettings">Open Settings</button>` : ""}
           </div>` : ""}
         ${unconfigured ? `
@@ -290,71 +290,60 @@
   }
 
   // ---- settings card (admin) ----
-  // No API-key field anywhere: the customer authenticates with Google, and
-  // the Gemini credential lives only on the backend.
+  // The owner only ever connects a Google account here - the Gemini key and
+  // the OAuth client are vendored by the MartPOS gateway in the background
+  // (device-token auth), so there is no API-key field and no credentials.json
+  // step anywhere in this UI.
   function aiSettingsCardHtml() {
     const st = (state.ai && state.ai.status) || {};
-    const info = statusInfo(st.provider ? st : null);
     const g = st.google || {};
+    const connected = !!g.connected;
+    const geminiOk = connected && st.configured && st.reachable !== false && st.model_available !== false;
+    const geminiLabel = !st.configured ? "Not provisioned"
+      : st.model_available === false ? "Model unavailable"
+        : st.reachable === false ? "Unavailable - offline"
+          : "Connected";
     return `
       <div class="card" id="aiCard">
         <h3>🧠 AI Store Manager</h3>
-        <p><span class="dot ${st.provider ? (info.online ? "on" : "off") : "off"}"></span>
-          ${st.provider ? esc(info.label) : "Checking status..."}</p>
-        <p class="help">Lets staff ask business questions in English, Tamil or Tanglish. Read-only - it can look up sales, stock, credit and expenses but cannot change any data. Powered by Google Gemini.</p>
+        <p><span class="dot ${connected ? "on" : "off"}"></span> ${connected ? "Connected" : "Not connected"}</p>
+        <p class="help">Let staff ask business questions in English, Tamil or Tanglish. Read-only - AI cannot change store data. Powered by Google Gemini.</p>
 
-        ${g.connected ? `
-          <div class="ai-google-box">
-            <p><b>Google account:</b> ${esc(g.name ? `${g.name} (${g.email})` : g.email)}</p>
-            <p class="muted">AI model: ${esc(st.model || "")}${st.credential_mode === "platform" ? " · platform-managed credential" : st.credential_mode === "managed" ? " · managed credential" : st.credential_mode === "cloud" ? " · cloud-managed credential" : ""}</p>
-            ${!st.configured ? `<p class="help"><b>AI credential missing.</b> This installation has no Gemini credential on the backend - ask your POS provider to configure it (GEMINI_API_KEY).</p>` : ""}
-          </div>` : `
-          <p class="help">Connect a Google account to enable AI Store Manager. No API key is shown or entered here.</p>
-          ${!st.google_signin_available ? `<p class="help"><b>Google sign-in is not set up on this installation.</b> Place a Google "Desktop app" credentials.json in the data folder (the same file Google Drive backup uses), or ask your provider to configure it.</p>` : ""}`}
+        <div class="ai-google-box">
+          <p><b>Google Account</b></p>
+          ${connected ? `
+            <p><span class="dot on"></span> ${esc(g.name ? `${g.name} (${g.email})` : g.email)}</p>
+            <p class="muted">Google account connected</p>
+            <div class="toolbar">
+              <button class="btn ghost" type="button" id="aiGoogleConnect">Change Account</button>
+              <button class="btn ghost" type="button" id="aiGoogleDisconnect">Remove Account</button>
+            </div>` : `
+            <p class="muted">No Google account connected</p>
+            <p class="help">Connect a Google account to enable AI Store Manager.</p>
+            <button class="btn" type="button" id="aiGoogleConnect">+ Add Google Account</button>`}
+        </div>
 
-        <form id="aiCfgForm" class="form-grid">
-          <label>AI model
-            <input name="model" placeholder="gemini-2.5-flash" value="${esc(st.model || "gemini-2.5-flash")}" />
-          </label>
-          <label class="check"><input type="checkbox" name="enabled" ${st.enabled !== false ? "checked" : ""} /> Enable AI Store Manager</label>
-          <div class="full toolbar">
-            ${g.connected
-              ? `<button class="btn ghost" type="button" id="aiGoogleDisconnect">Disconnect Google Account</button>`
-              : `<button class="btn" type="button" id="aiGoogleConnect" ${st.google_signin_available ? "" : "disabled"}>Sign in with Google</button>`}
-            <button class="btn ghost" type="submit">Save AI settings</button>
-            <button class="btn ghost" type="button" id="aiTestBtn">Test AI</button>
-          </div>
-        </form>
+        <p class="muted"><b>AI Model:</b> ${esc(st.model || "gemini-2.5-flash")}</p>
+        <p class="muted"><b>AI Service:</b> Cloud managed</p>
+        ${connected ? `
+          <p class="muted"><b>Gemini:</b> <span class="dot ${geminiOk ? "on" : "off"}"></span> ${esc(geminiLabel)}</p>
+          ${!st.configured ? `<p class="help"><b>AI credential missing.</b> No Gemini credential is provisioned - ask your POS provider.</p>` : ""}` : ""}
+
+        <div class="toolbar">
+          <button class="btn ghost" type="button" id="aiTestBtn">Test AI</button>
+        </div>
         <div id="aiCfgMsg" class="help"></div>
         <div id="aiTestMsg" class="help"></div>
       </div>`;
   }
 
   function bindAiSettingsCard() {
-    const form = document.getElementById("aiCfgForm");
-    if (!form) return;
     const msg = document.getElementById("aiCfgMsg");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      try {
-        const res = await api("/api/ai/config", {
-          method: "POST",
-          body: {
-            model: fd.get("model"),
-            enabled: !!form.querySelector('[name="enabled"]').checked
-          }
-        });
-        if (state.ai) state.ai.status = res.ai;
-        msg.textContent = "AI settings saved.";
-        renderView();
-      } catch (err) {
-        msg.textContent = err.message;
-      }
-    });
 
-    // Google sign-in: the backend opens the system browser and this request
-    // resolves when the flow finishes (or is cancelled/times out).
+    // Google connect: the backend runs the loopback OAuth flow (opening the
+    // system browser), then provisions the vendored Gemini credential and
+    // probes it before resolving - the card flips to Connected only when
+    // both halves succeeded.
     const connectBtn = document.getElementById("aiGoogleConnect");
     if (connectBtn) {
       connectBtn.addEventListener("click", async () => {
@@ -362,7 +351,9 @@
         msg.textContent = "Finish signing in in the browser window that just opened...";
         try {
           const res = await api("/api/ai/google/connect", { method: "POST" });
-          msg.textContent = "";
+          msg.textContent = res.provisioned === false && res.provider_error
+            ? `Google account connected, but AI is not ready yet: ${res.provider_error.message || "provisioning failed"}`
+            : "";
           await window.MartAI.loadAI();
           renderView();
         } catch (err) {
@@ -376,9 +367,9 @@
     if (disconnectBtn) {
       disconnectBtn.addEventListener("click", async () => {
         if (!(await confirmDialog({
-          title: "Disconnect the Google account?",
+          title: "Remove the Google account?",
           message: "AI Store Manager will stop working until a Google account is connected again. Shop data and settings are not affected.",
-          confirmLabel: "Disconnect"
+          confirmLabel: "Remove Account"
         }))) return;
         try {
           await api("/api/ai/google/disconnect", { method: "POST" });
