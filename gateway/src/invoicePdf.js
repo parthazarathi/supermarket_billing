@@ -1,3 +1,4 @@
-// Re-exports the shared lib/pdfGenerator; the gateway always passes a settings
-// snapshot so lib/settings (and sql.js) is never loaded here.
-module.exports = require('../../lib/pdfGenerator');
+// Gateway-local invoice PDF renderer. Kept as a separate module so callers
+// (queueWorker) keep their existing import path; the implementation lives in
+// ./lib/pdfGenerator, which is self-contained - no imports outside gateway/.
+module.exports = require('./lib/pdfGenerator');

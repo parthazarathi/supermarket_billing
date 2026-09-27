@@ -9,7 +9,7 @@
     "dev": "node --env-file=.env src/index.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.0.0 <21.0.0"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
