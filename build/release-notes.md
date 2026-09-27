@@ -1,7 +1,8 @@
-- AI Store Manager now runs on Google Gemini - faster, more reliable answers for sales, stock, credit and reorder questions
-- Sign in with Google: admins connect a Google account once in Settings - no API keys to type or share, and staff just use the AI view
-- Easier setup: shops linked to a MartPOS account need no credential files at all - the app gets everything it needs automatically in the background
-- Safer AI sign-in: the Google account is verified by Google itself, AI credentials stay on the backend and are never shown on screen
-- Fixed: after updating, the AI model setting could show an old invalid model name - it now resets to the correct default automatically
-- Chat is more resilient: clearer messages when AI is offline, disconnected or over its usage limit - billing, printing and reports are unaffected
+- Google Drive backup is now one click: Settings > Google Drive > + Connect Google Drive, pick your Google account, authorize - done. No Google Cloud setup, no credential files, nothing to type
+- Backups are encrypted on your computer before upload - your data is protected end to end, and Google only ever sees the encrypted file
+- Backups now go to a visible "MARTPOS Backups" folder in your Google Drive - no folder creation needed, MartPOS makes it for you
+- Automatic backups keep working even when the app is closed or you're away - the MartPOS service handles it securely
+- New: Change Account button to switch which Google account receives backups, and Disconnect keeps all your existing backup files
+- More reliable restores: downloaded backups are verified before they replace your data, with a safety backup taken first as always
+- If Google Drive is unreachable, local backups continue as normal and sales, printing and reports are never affected
 - No changes to billing, inventory, customers, reports or your data - same business logic
