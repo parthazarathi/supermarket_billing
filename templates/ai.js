@@ -323,7 +323,7 @@
             <button class="btn" type="button" id="aiGoogleConnect">+ Add Google Account</button>`}
         </div>
 
-        <p class="muted"><b>AI Model:</b> ${esc(st.model || "gemini-2.5-flash")}</p>
+        <p class="muted"><b>AI Model:</b> ${esc(st.model || "gemini-3.8-flash")}</p>
         <p class="muted"><b>AI Service:</b> Cloud managed</p>
         ${connected ? `
           <p class="muted"><b>Gemini:</b> <span class="dot ${geminiOk ? "on" : "off"}"></span> ${esc(geminiLabel)}</p>

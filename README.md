@@ -195,7 +195,7 @@ npm run build:server-installer  # dist\MartPOS-Server-Setup-<version>.exe (Inno 
 
 An optional assistant that answers questions about your store — sales, stock, credit, purchases, expenses — using the real POS database through a fixed set of read-only tools. It can never change data, run SQL, or reach the database directly.
 
-It uses **Google Gemini** (default model `gemini-2.5-flash`, free tier available). Customers authenticate with **Google Sign-In** — an OAuth loopback flow verifies the account identity via `id_token` (no email typed in a box, no Google tokens persisted). Customers never see or enter a Gemini API key; the credential stays backend-only and supports three modes:
+It uses **Google Gemini** (default model `gemini-3.8-flash`, free tier available). Customers authenticate with **Google Sign-In** — an OAuth loopback flow verifies the account identity via `id_token` (no email typed in a box, no Google tokens persisted). Customers never see or enter a Gemini API key; the credential stays backend-only and supports three modes:
 
 - **Platform-managed** — `GEMINI_API_KEY` set on the backend by the POS provider/operator.
 - **Managed** — a credential stored in the encrypted secrets store via the internal config API (`POST /api/ai/config {api_key}`); never returned to the frontend.
@@ -319,7 +319,7 @@ npm run lint
 | `MARTPOS_CLOUD_URL` | POS | gateway base URL — deployment/build-operator config baked into packaged builds via `build:platform-config`, or set at runtime in server mode (https; localhost http only in dev/test) |
 | `MARTPOS_SECRET_KEY` | POS | base64 32-byte key for secret storage when DPAPI is unavailable |
 | `GEMINI_API_KEY` | POS | AI Store Manager key — prefer Settings → AI Store Manager (encrypted store) |
-| `GEMINI_MODEL` | POS | AI model override (default `gemini-2.5-flash`) |
+| `GEMINI_MODEL` | POS | AI model override (default `gemini-3.8-flash`) |
 | `DATABASE_URL` | gateway | PostgreSQL connection string |
 | `GATEWAY_PUBLIC_URL` | gateway | public HTTPS origin (onboarding links, webhook docs) |
 | `GATEWAY_ENCRYPTION_KEY` | gateway | base64 32-byte key encrypting Meta access tokens |
