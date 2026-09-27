@@ -176,6 +176,116 @@ async function revokeAiGrantByTokenHash(q, tokenHash) {
   await q.query('UPDATE ai_grants SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [tokenHash]);
 }
 
+// ---- Google Drive backup links ----
+// One live link per shop (device-bound) or per Google account (standalone).
+// refreshTokenEnc/backupKeyEnc are {ciphertext, iv, tag} produced by
+// encryptValue() with GATEWAY_ENCRYPTION_KEY - never plaintext.
+async function upsertDriveLink(pool, { shopId, googleSub, email, name, grantTokenHash, refreshTokenEnc, folderId, folderName }) {
+  return withTx(pool, async (q) => {
+    const found = await q.query(
+      shopId
+        ? `SELECT id, backup_key_ciphertext, backup_key_iv, backup_key_tag FROM drive_links
+           WHERE shop_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`
+        : `SELECT id, backup_key_ciphertext, backup_key_iv, backup_key_tag FROM drive_links
+           WHERE google_sub = $1 AND shop_id IS NULL AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+      [shopId || googleSub]
+    );
+    const cols = {
+      grant_token_hash: grantTokenHash,
+      google_sub: googleSub,
+      email: email || '',
+      name: name || '',
+      refresh_token_ciphertext: refreshTokenEnc.ciphertext,
+      refresh_token_iv: refreshTokenEnc.iv,
+      refresh_token_tag: refreshTokenEnc.tag,
+      folder_id: folderId || '',
+      folder_name: folderName || 'MARTPOS Backups',
+      status: 'connected'
+    };
+    const setList = Object.keys(cols).map((c, i) => `${c} = $${i + 2}`).join(', ');
+    const params = Object.values(cols);
+    if (found.rowCount) {
+      const id = found.rows[0].id;
+      await q.query(
+        `UPDATE drive_links SET ${setList}, shop_id = $${params.length + 2},
+           last_error = '', revoked_at = NULL, updated_at = now() WHERE id = $1`,
+        [id, ...params, shopId || null]
+      );
+      const k = found.rows[0];
+      const escrowed = k.backup_key_ciphertext
+        ? { ciphertext: k.backup_key_ciphertext, iv: k.backup_key_iv, tag: k.backup_key_tag }
+        : null;
+      return { id, escrowedKey: escrowed };
+    }
+    const id = crypto.randomUUID();
+    await q.query(
+      `INSERT INTO drive_links (id, shop_id, ${Object.keys(cols).join(', ')})
+       VALUES ($1, $${params.length + 2}, ${params.map((_, i) => '$' + (i + 2)).join(', ')})`,
+      [id, ...params, shopId || null]
+    );
+    return { id, escrowedKey: null };
+  });
+}
+
+async function findDriveLinkByGrantHash(q, tokenHash) {
+  const r = await q.query(
+    `SELECT id, shop_id, google_sub, email, name, folder_id, folder_name, status,
+            refresh_token_ciphertext, refresh_token_iv, refresh_token_tag,
+            backup_key_ciphertext, backup_key_iv, backup_key_tag,
+            last_backup_at, last_error, created_at
+     FROM drive_links WHERE grant_token_hash = $1 AND revoked_at IS NULL`,
+    [tokenHash]
+  );
+  if (!r.rowCount) return null;
+  await q.query('UPDATE drive_links SET last_seen_at = now() WHERE id = $1', [r.rows[0].id]).catch(() => {});
+  return r.rows[0];
+}
+
+async function findDriveLinkForShop(q, shopId) {
+  const r = await q.query(
+    `SELECT id, shop_id, google_sub, email, name, folder_id, folder_name, status,
+            refresh_token_ciphertext, refresh_token_iv, refresh_token_tag,
+            backup_key_ciphertext, backup_key_iv, backup_key_tag,
+            last_backup_at, last_error, created_at
+     FROM drive_links WHERE shop_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+    [shopId]
+  );
+  return r.rows[0] || null;
+}
+
+async function setDriveLinkBackupKey(q, id, backupKeyEnc) {
+  await q.query(
+    `UPDATE drive_links SET backup_key_ciphertext = $2, backup_key_iv = $3,
+       backup_key_tag = $4, updated_at = now() WHERE id = $1 AND revoked_at IS NULL`,
+    [id, backupKeyEnc.ciphertext, backupKeyEnc.iv, backupKeyEnc.tag]
+  );
+}
+
+async function markDriveLinkBackup(q, id, { at, error }) {
+  if (error) {
+    await q.query(
+      `UPDATE drive_links SET last_error = $2, updated_at = now() WHERE id = $1`,
+      [id, String(error).slice(0, 300)]
+    );
+  } else {
+    await q.query(
+      `UPDATE drive_links SET last_backup_at = $2, last_error = '', updated_at = now() WHERE id = $1`,
+      [id, at]
+    );
+  }
+}
+
+// Disconnect: tombstone the link and wipe token/key material. The customer's
+// Drive files are never touched by this operation.
+async function revokeDriveLink(q, id) {
+  await q.query(
+    `UPDATE drive_links SET revoked_at = now(), grant_token_hash = NULL,
+       refresh_token_ciphertext = '', refresh_token_iv = '', refresh_token_tag = '',
+       updated_at = now() WHERE id = $1 AND revoked_at IS NULL`,
+    [id]
+  );
+}
+
 
 async function getTemplate(q, shopId, name, language = 'en_US') {
   const r = await q.query(
@@ -421,5 +531,7 @@ module.exports = {
   messageUpdatesSince, claimDueJobs, finishJob, failJob, retryJob, cancelPendingJobs,
   insertWebhookEvent, markWebhookProcessed,
   createAiGrant, findAiGrantByTokenHash, revokeAiGrantByTokenHash,
+  upsertDriveLink, findDriveLinkByGrantHash, findDriveLinkForShop,
+  setDriveLinkBackupKey, markDriveLinkBackup, revokeDriveLink,
   supportSummary, supportDiagnostics, maskPhoneNumber
 };

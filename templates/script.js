@@ -4153,23 +4153,27 @@ function renderSettings(view) {
       </div>
       <div class="card" data-sec="drive">
         <h3>Google Drive backup</h3>
-        <p><span class="dot ${d.connected ? "on" : "off"}"></span>${d.connected ? `Connected${d.email ? ` · ${esc(d.email)}` : ""}` : "Not connected"}</p>
+        <p><span class="dot ${d.connected ? "on" : "off"}"></span>${d.connected ? "Connected" : "Not connected"}</p>
         ${d.connected ? `
-        <p class="muted">Last backup: ${d.last_backup_at ? esc(fmtDateTime(d.last_backup_at)) : "never"}${d.last_status === "failed" ? ` <span class="badge badge-unpaid">last attempt failed</span>` : ""}</p>
-        <p class="muted">Next backup: ${d.next_backup_at ? esc(fmtDateTime(d.next_backup_at)) : s.drive_backup_interval === "on_exit" ? "at application close" : "—"}</p>
-        <p class="muted">Frequency: ${esc(({"6h": "Every 6 hours", daily: "Daily", on_exit: "At application close"})[d.backup_interval] || "Daily")} · Folder: ${esc(d.folder || "MartPOS Backups")}</p>` : `
-        <p class="help">1. Create a Google Cloud OAuth <b>Desktop</b> client.<br>
-        2. Download <code>credentials.json</code> into <code>${esc(d.credentials_path || "")}</code><br>
-        3. Click Connect, sign in, then Backup now.</p>
-        <p class="muted">Credentials file: ${d.credentials ? "found" : "missing"}</p>`}
+        <p class="muted"><b>Google Account</b></p>
+        <p><span class="dot on"></span>${esc(d.email || "Google account")}</p>
+        <p class="muted">Google Drive connected</p>
+        <p class="muted">Automatic backup: ${esc(({"6h": "Every 6 hours", daily: "Daily", on_exit: "At application close"})[d.backup_interval] || "Daily")}${d.auto_backup ? "" : " (off)"}${d.next_backup_at ? ` · Next: ${esc(fmtDateTime(d.next_backup_at))}` : ""}</p>
+        <p class="muted">Last backup: ${d.last_backup_at ? esc(fmtDateTime(d.last_backup_at)) : "Never"}${d.last_status === "failed" ? ` <span class="badge badge-unpaid">last attempt failed</span>` : ""}</p>
+        <p class="muted">Google Drive: ${esc(d.folder || "MARTPOS Backups")}</p>
         <div class="toolbar">
-          ${d.connected ? `
-          <button class="btn green" id="drvBackup">Backup now</button>
-          <button class="btn ghost" id="drvTest">Test connection</button>
-          <button class="btn ghost" id="drvHistory">Backup history</button>
-          <button class="btn ghost" id="drvOff">Disconnect</button>` : `
-          <button class="btn" id="drvConnect">Connect Google Drive</button>`}
-        </div>
+          <button class="btn green" id="drvBackup">Backup Now</button>
+          <button class="btn ghost" id="drvRestore">Restore</button>
+          <button class="btn ghost" id="drvChange">Change Account</button>
+          <button class="btn ghost danger" id="drvOff">Disconnect</button>
+        </div>` : `
+        <p class="muted">Automatically back up your MARTPOS data securely to your Google Drive.</p>
+        <p class="muted"><b>Google Account</b><br>No Google account connected</p>
+        ${d.available === false
+          ? `<p class="help">The backup service is not configured on this installation. Contact your POS provider.</p>`
+          : `<div class="toolbar"><button class="btn" id="drvConnect">+ Connect Google Drive</button></div>`}
+        <p class="muted">Automatic backup: ${esc(({"6h": "Every 6 hours", daily: "Daily", on_exit: "At application close"})[s.drive_backup_interval] || "Daily")}</p>
+        <p class="muted">Last backup: ${d.last_backup_at ? esc(fmtDateTime(d.last_backup_at)) : "Never"}</p>`}
         <div id="drvMsg" class="help"></div>
       </div>
       <div class="card" data-sec="backup">
@@ -4251,7 +4255,8 @@ function renderSettings(view) {
     ReceiptPrinter.print(ReceiptPrinter.sampleInvoice(), receiptCfgFromForm(form));
   });
   refreshReceiptPreview();
-  document.getElementById("drvConnect")?.addEventListener("click", async () => {
+  const driveConnect = async () => {
+    const msg = document.getElementById("drvMsg");
     try {
       setStatus("A browser window will open for Google sign-in...");
       const data = await api("/api/drive/connect", { method: "POST", body: {} });
@@ -4259,10 +4264,17 @@ function renderSettings(view) {
       setStatus("Google Drive connected", "ok");
       renderView();
     } catch (err) {
+      if (msg) msg.textContent = "";
       setStatus(err.message, "error");
     }
-  });
+  };
+  document.getElementById("drvConnect")?.addEventListener("click", driveConnect);
+  // Change Account runs the same verified link flow - the backend only
+  // replaces the stored link after the new account authorizes and verifies,
+  // so a cancelled or failed attempt keeps the current connection.
+  document.getElementById("drvChange")?.addEventListener("click", driveConnect);
   wireWaCard();
+  document.getElementById("drvRestore")?.addEventListener("click", () => openBackupCenter());
   document.getElementById("drvBackup")?.addEventListener("click", async () => {
     const msg = document.getElementById("drvMsg");
     try {
@@ -4276,17 +4288,6 @@ function renderSettings(view) {
       msg.textContent = `Backup could not be uploaded. Your local POS data is safe. (${err.message})`;
     }
   });
-  document.getElementById("drvTest")?.addEventListener("click", async () => {
-    const msg = document.getElementById("drvMsg");
-    msg.textContent = "Testing Google Drive connection…";
-    try {
-      const r = await api("/api/drive/test", { method: "POST", body: {} });
-      msg.textContent = `Connected as ${r.result.email || "Google account"} · folder “${r.result.folder}” is ready.`;
-    } catch (err) {
-      msg.textContent = `Connection test failed: ${err.message}`;
-    }
-  });
-  document.getElementById("drvHistory")?.addEventListener("click", () => openBackupCenter());
   document.getElementById("localBackup")?.addEventListener("click", async () => {
     const msg = document.getElementById("localBackupMsg");
     msg.textContent = "Creating local backup…";

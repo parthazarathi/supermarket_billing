@@ -247,13 +247,9 @@ app.get('/api/me', (req, res) => {
   if (!user) {
     return res.json({ ok: true, user: null, settings: publicSettings() });
   }
-  // Cashiers get cloud status without the local file paths - they need the
-  // connected/not-connected dots for billing, not server internals.
+  // Drive status carries only account metadata + schedule - no tokens,
+  // grants, or file paths are ever included at any role.
   const drive = driveStatus();
-  if (user.role !== 'admin') {
-    delete drive.credentials_path;
-    delete drive.token_path;
-  }
   res.json({
     ok: true,
     user: user,

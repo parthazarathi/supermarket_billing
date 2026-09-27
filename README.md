@@ -201,7 +201,7 @@ It uses **Google Gemini** (default model `gemini-3.8-flash`, free tier available
 - **Managed** — a credential stored in the encrypted secrets store via the internal config API (`POST /api/ai/config {api_key}`); never returned to the frontend.
 - **Cloud-managed** — zero local setup: on "+ Add Google Account" the install pulls the OAuth client config from the gateway's public `GET /v1/ai/oauth-client`, completes the loopback sign-in, then exchanges the verified `id_token` at `POST /v1/ai/link` (the gateway re-verifies it with Google) for a scoped AI grant. The grant authenticates `GET /v1/ai/credential`, which returns the Gemini key — cached in the encrypted secrets store and re-fetched automatically on rotation. "Remove Account" revokes the grant via `DELETE /v1/ai/link`. Nothing ships in the installer and no `credentials.json` is needed.
 
-Requires internet. Google Sign-In needs an OAuth "Desktop app" client — `credentials.json` in the data folder (same file Google Drive backup uses), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars, or the gateway-vendored config for cloud-linked installs.
+Requires internet. Google Sign-In uses the same developer-owned OAuth "Desktop app" client as Google Drive backup — `credentials.json` in the data folder or `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars for standalone setups, or the gateway-vendored config for cloud-linked installs (the normal case — zero local configuration).
 
 **Setup:**
 
@@ -217,7 +217,7 @@ If the key is missing, invalid, out of quota, or the machine is offline, the cha
 MartPOS keeps **two independent backups**:
 
 - **Local** — snapshots in `<data dir>\backups\` (e.g. `%LOCALAPPDATA%\MartPOS\backups\MartPOS-backup-2026-09-14-183000.db`). Taken automatically (daily by default, configurable) and manually from Settings → Local backup → **Create backup**. The last 30 snapshots are kept.
-- **Google Drive** — uploads to `MartPOS Backups/YYYY/MM/YYYY-MM-DD/` on the connected Drive plus a `latest.db` at the folder root. Drive backups are never auto-deleted.
+- **Google Drive** — encrypted `MartPOS-backup-*.mpbak` uploads to the visible `MARTPOS Backups` folder on the connected Drive (the last 30 are kept). Snapshots are encrypted with AES-256-GCM **before leaving the machine** — the gateway and Google only ever see ciphertext.
 
 Every snapshot is **validated before it is saved or uploaded** (opens as a database, has the core tables, passes an integrity check) — a corrupt export is never counted as a backup. Every attempt is recorded in **Settings → Backups & restore → History** with date, type, location, status and size.
 
@@ -225,16 +225,20 @@ Every snapshot is **validated before it is saved or uploaded** (opens as a datab
 
 ### Google Drive setup
 
-This is backup/restore of the local database, not live two-way sync.
+This is backup/restore of the local database, not live two-way sync. There is **no customer-side setup at all** — no Google Cloud project, no `credentials.json`, no API keys, no environment variables:
 
-1. In [Google Cloud Console](https://console.cloud.google.com/) create a project, enable **Google Drive API**, and create an OAuth client of type **Desktop app**.
-2. Download `credentials.json` into the app data folder:
-   - Web/dev: `data\credentials.json`
-   - EXE: `%LOCALAPPDATA%\MartPOS\credentials.json`
-3. Settings → **Connect Google Drive** — the system browser opens for Google sign-in and returns to MartPOS automatically. The connected account's email is shown in Settings.
-4. Turn on **automatic Google Drive backup** in Settings and pick a frequency (every 6 hours, every day, or at application close). A failed backup never blocks a sale.
+1. Settings → **Google Drive** → **+ Connect Google Drive** — the system browser opens the Google account picker.
+2. Authorize MartPOS (only the narrow `drive.file` permission is requested — MartPOS can only see files it creates itself).
+3. That's it — the card shows **● Connected** with the account email. The MartPOS backend verifies the authorization and creates the `MARTPOS Backups` folder automatically.
 
-**Disconnect** revokes access and stops automatic backup; existing Drive backups and local data are kept.
+How it works: the OAuth sign-in uses the developer-owned MartPOS OAuth client vendored by the gateway (the same pattern as AI sign-in). The Google **refresh token lives only on the gateway**, encrypted at rest — it is never stored on the POS, logged, or sent to the renderer. Backups travel `POS → gateway → Google Drive` as already-encrypted blobs; automatic uploads keep working while the customer is away because the gateway refreshes the Google access token itself.
+
+4. Turn on **automatic Google Drive backup** in Settings and pick a frequency (every 6 hours, every day, or at application close). A failed upload never blocks a sale — local backups always continue.
+5. **Change Account** re-runs the same authorize step; the existing connection is kept if the new account fails or is cancelled.
+
+**Encryption & recovery:** Drive backups are encrypted with a device-generated AES-256 key held in the encrypted secrets store, and escrowed (encrypted at rest) on the gateway under the Drive link — so reinstalling on a new PC and reconnecting the same Google account restores the ability to decrypt old backups. If both the device key *and* the gateway link are lost, existing Drive backups cannot be decrypted.
+
+**Disconnect** revokes the backend authorization, deletes the stored refresh token, and stops automatic backup; existing Drive backups and local data are kept.
 
 ## WhatsApp billing (Meta Cloud API)
 

@@ -349,10 +349,10 @@ if (!gotLock) {
     exitBackupAttempted = true;
     try {
       const { getSetting } = require('./lib/settings');
-      const { tokenPresent, tryAutoBackup } = require('./lib/driveSync');
+      const { driveLinked, tryAutoBackup } = require('./lib/driveSync');
       if (getSetting('drive_auto_backup', '0') === '1' &&
           getSetting('drive_backup_interval', 'daily') === 'on_exit' &&
-          tokenPresent()) {
+          driveLinked()) {
         event.preventDefault();
         const finish = () => electronApp.quit();
         const timeout = setTimeout(finish, 30000);

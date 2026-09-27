@@ -16,7 +16,7 @@ submission.
 | Frontend | Static server-served UI | `templates/` (no React build step) |
 | Database | sql.js (SQLite compiled to WASM), single file `pos.db` | `%LOCALAPPDATA%\MartPOS\pos.db` |
 | Secrets | `lib/secrets.js` — Windows DPAPI via Electron `safeStorage`, AES-256-GCM fallback (`MARTPOS_SECRET_KEY`) | `%LOCALAPPDATA%\MartPOS\secrets.json` |
-| Google Drive | `lib/driveSync.js` — OAuth Desktop app, loopback-IP redirect (RFC 8252) | `credentials.json` / `token.json` in the data dir |
+| Google Drive | `lib/driveSync.js` — vendored OAuth client + loopback-IP redirect (RFC 8252); refresh token lives on the gateway | `drive_*` grant/key in encrypted `secrets.json`; Google tokens stay on the gateway |
 | WhatsApp | `lib/whatsapp/` — MartPOS cloud gateway; device token in encrypted secrets | gateway URL from `generated/platform-config.json` or `MARTPOS_CLOUD_URL` |
 | Updates | `lib/updater.js` — electron-updater + GitHub Releases, **NSIS only** | `latest.yml` on the GitHub release |
 | Packaging | electron-builder 26.15.3 — targets `nsis`, `portable`, `appx` | `dist-app/` |
@@ -56,8 +56,11 @@ Layout (established — kept intentionally flat for backward compatibility):
 %LOCALAPPDATA%\MartPOS
 ├── pos.db                 # SQLite database (sql.js)
 ├── secrets.json           # DPAPI/GCM-encrypted credentials store
-├── credentials.json       # Google OAuth client credentials (user-provided)
-├── token.json             # Google OAuth refresh token
+│                          # (incl. the Drive gateway grant + backup key)
+├── credentials.json       # legacy Google OAuth client file - only read by
+│                          # the optional local AI sign-in path; Drive backup
+│                          # no longer uses it
+├── token.json             # legacy Google OAuth token (pre-gateway Drive)
 ├── session-secret.txt     # Express session secret
 ├── backups\               # local DB snapshots + restore staging source
 ├── logs\martpos-YYYY-MM-DD.log   # 14-day rolling logs (secrets redacted)
@@ -86,7 +89,8 @@ launch:
    server-mode builds.
 3. Copies `pos.db` first (size-verified; a failed copy is renamed
    `*.migration-failed`, never trusted).
-4. Then adopts `secrets.json`, `credentials.json`, `token.json`,
+4. Then adopts `secrets.json`, `credentials.json`, `token.json` (legacy AI
+   sign-in / pre-gateway Drive installs),
    `session-secret.txt`, and `backups\*.db` — each only when the
    destination does not already have it.
 5. Source files are never moved or deleted; every step is logged; any
@@ -287,16 +291,30 @@ system per install type.
 
 ## 8. Google Drive configuration
 
-- OAuth **Desktop** app credentials: `credentials.json` placed in
-  `%LOCALAPPDATA%\MartPOS\` (Settings → Google Drive → Connect).
-- The OAuth flow uses a loopback IP redirect (`http://127.0.0.1:<port>`,
-  RFC 8252) with a system browser — works identically under NSIS/MSIX; no
+- **Zero customer setup**: Settings → Google Drive → **Connect Google Drive**
+  opens the Google account picker; authorizing completes the link. No
+  `credentials.json`, no Google Cloud console, no env vars on the POS.
+- The OAuth **Desktop** app client is developer-owned and vendored to the
+  install by the gateway's public `GET /v1/drive/oauth-client` endpoint
+  (same mechanism as AI sign-in). The client secret is needed server-side
+  for refresh-token exchange; installed-app clients are not confidential by
+  design (RFC 8252).
+- The OAuth flow uses a loopback IP redirect (`http://127.0.0.1:<port>`)
+  with a system browser — works identically under NSIS/MSIX; no
   redirect-URI changes needed for packaging.
-- Scope: `drive.file`; backups go to `MartPOS Backups/YYYY/MM/DD` +
-  `latest.db` in the user's Drive. Local staging under `backups\` /
-  `restores\` in the data dir.
-- Never commit real `credentials.json`/`token.json` — `.gitignore` covers
-  them; they are also never packaged (they live outside `files`).
+- `access_type: offline` + `drive.file` scope only: the refresh token is
+  forwarded to the gateway once and never persisted on the POS. The gateway
+  stores it AES-256-GCM-encrypted in `drive_links` and refreshes access
+  tokens itself, so automatic backups run while the customer is away.
+- The POS holds only an opaque `mpt_drv_…` grant in encrypted
+  `secrets.json`, plus the device backup-encryption key (escrowed,
+  encrypted, on the gateway for disaster recovery to a new PC).
+- Backups are AES-256-GCM-encrypted **on the POS before upload** and travel
+  `POS → gateway → Google Drive` as ciphertext; the gateway stores nothing
+  after upload. Files land in the visible `MARTPOS Backups` folder (last 30
+  kept). Local staging under `restores\` in the data dir.
+- `.gitignore` still covers any local `credentials.json`/`token.json` left
+  by legacy installs; they are never packaged (they live outside `files`).
 
 ## 9. WhatsApp configuration
 

@@ -138,6 +138,42 @@ CREATE TABLE IF NOT EXISTS ai_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_grants_sub ON ai_grants(google_sub);
 
+-- Google Drive backup links: a shop/installation's Drive authorization.
+-- The Google refresh token is stored AES-256-GCM-encrypted (ciphertext/iv/tag)
+-- with GATEWAY_ENCRYPTION_KEY; plaintext tokens never touch the database.
+-- Each link also carries a bearer grant (hash only) the POS presents for
+-- /v1/drive/* calls, and the escrowed device backup-encryption key so a
+-- re-linked install on a new machine can still decrypt its Drive backups.
+CREATE TABLE IF NOT EXISTS drive_links (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT REFERENCES shops(id),
+  grant_token_hash TEXT UNIQUE,
+  google_sub TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  refresh_token_ciphertext TEXT NOT NULL DEFAULT '',
+  refresh_token_iv TEXT NOT NULL DEFAULT '',
+  refresh_token_tag TEXT NOT NULL DEFAULT '',
+  backup_key_ciphertext TEXT NOT NULL DEFAULT '',
+  backup_key_iv TEXT NOT NULL DEFAULT '',
+  backup_key_tag TEXT NOT NULL DEFAULT '',
+  folder_id TEXT NOT NULL DEFAULT '',
+  folder_name TEXT NOT NULL DEFAULT 'MARTPOS Backups',
+  status TEXT NOT NULL DEFAULT 'connected',
+  last_backup_at TIMESTAMPTZ,
+  last_error TEXT DEFAULT '',
+  last_seen_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_drive_links_shop ON drive_links(shop_id);
+-- One live link per shop; one live standalone link per Google account.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_links_live_shop
+  ON drive_links(shop_id) WHERE shop_id IS NOT NULL AND revoked_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_links_live_sub
+  ON drive_links(google_sub) WHERE shop_id IS NULL AND revoked_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS webhook_events (
   id TEXT PRIMARY KEY,
   digest TEXT NOT NULL UNIQUE,

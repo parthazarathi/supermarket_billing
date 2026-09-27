@@ -87,6 +87,14 @@ function loadConfig(env = process.env) {
       geminiApiKey: String(env.GEMINI_API_KEY || '').trim(),
       googleClientId: String(env.GOOGLE_CLIENT_ID || '').trim(),
       googleClientSecret: String(env.GOOGLE_CLIENT_SECRET || '').trim()
+    },
+    // Google Drive backup - the same developer-owned OAuth "Desktop app"
+    // client authorizes the narrow drive.file scope. The client is vendored
+    // to installs via GET /v1/drive/oauth-client; the secret only ever lives
+    // here and is used for the refresh-token grant on the server side.
+    drive: {
+      googleClientId: String(env.GOOGLE_CLIENT_ID || '').trim(),
+      googleClientSecret: String(env.GOOGLE_CLIENT_SECRET || '').trim()
     }
   };
 }

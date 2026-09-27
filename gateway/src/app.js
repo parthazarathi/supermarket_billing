@@ -11,6 +11,8 @@ const { sha256Hex, randomToken } = require('./cryptoUtil');
 const { sanitizeMessagePayload } = require('./payload');
 const { redactText } = require('./redact');
 const { connectionState } = require('./status');
+const { driveRoutes } = require('./driveRoutes');
+const { DriveApi } = require('./driveApi');
 
 const PHONE_RE = /^\+?\d{8,15}$/;
 const IDEMPOTENCY_RE = /^[\w:.-]{4,200}$/;
@@ -22,6 +24,10 @@ function createApp(deps) {
   const { config, pool } = deps;
   const metaFor = deps.metaFor || metaFactory(config);
   const fullDeps = { config, pool, metaFor };
+  // Injectable like metaFor: tests substitute a fake Google Drive client.
+  const drive = deps.driveFor
+    ? deps.driveFor(config)
+    : new DriveApi({ clientId: (config.drive || {}).googleClientId, clientSecret: (config.drive || {}).googleClientSecret });
 
   const app = express();
   app.disable('x-powered-by');
@@ -265,6 +271,16 @@ function createApp(deps) {
       console.error('ai unlink failed:', redactText(e.message || 'error'));
       return res.status(500).json({ ok: false, error: 'Unlink failed' });
     }
+  });
+
+  // ---- Google Drive backup ----
+  // Same authentication model as the rest of /v1: POS installs present a
+  // drive grant (mpt_drv_...) issued by /v1/drive/link, or their device
+  // token when the link was made under a registered shop. Google tokens
+  // live only here, encrypted with GATEWAY_ENCRYPTION_KEY.
+  driveRoutes(app, {
+    pool, config, drive,
+    linkLimiter: makeRateLimiter(30, 15 * 60 * 1000)
   });
 
   app.delete('/v1/devices/current', device, async (req, res) => {
