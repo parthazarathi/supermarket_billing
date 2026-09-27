@@ -79,6 +79,14 @@ function loadConfig(env = process.env) {
     support: {
       username: env.GATEWAY_SUPPORT_USERNAME || '',
       passwordHash: env.GATEWAY_SUPPORT_PASSWORD_HASH || ''
+    },
+    // AI Store Manager provisioning - vendored to linked POS installs via
+    // GET /v1/ai/credential. All optional: an unset field just means the
+    // gateway doesn't supply that piece (local POS config still works).
+    ai: {
+      geminiApiKey: String(env.GEMINI_API_KEY || '').trim(),
+      googleClientId: String(env.GOOGLE_CLIENT_ID || '').trim(),
+      googleClientSecret: String(env.GOOGLE_CLIENT_SECRET || '').trim()
     }
   };
 }

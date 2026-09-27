@@ -195,12 +195,13 @@ npm run build:server-installer  # dist\MartPOS-Server-Setup-<version>.exe (Inno 
 
 An optional assistant that answers questions about your store — sales, stock, credit, purchases, expenses — using the real POS database through a fixed set of read-only tools. It can never change data, run SQL, or reach the database directly.
 
-It uses **Google Gemini** (default model `gemini-2.5-flash`, free tier available). Customers authenticate with **Google Sign-In** — an OAuth loopback flow verifies the account identity via `id_token` (no email typed in a box, no Google tokens persisted). Customers never see or enter a Gemini API key; the credential stays backend-only and supports two modes:
+It uses **Google Gemini** (default model `gemini-2.5-flash`, free tier available). Customers authenticate with **Google Sign-In** — an OAuth loopback flow verifies the account identity via `id_token` (no email typed in a box, no Google tokens persisted). Customers never see or enter a Gemini API key; the credential stays backend-only and supports three modes:
 
 - **Platform-managed** — `GEMINI_API_KEY` set on the backend by the POS provider/operator.
 - **Managed** — a credential stored in the encrypted secrets store via the internal config API (`POST /api/ai/config {api_key}`); never returned to the frontend.
+- **Cloud-managed** — zero local setup: installs linked to a MartPOS owner account pull the key (and the Google OAuth client config) from the gateway's `GET /v1/ai/credential` endpoint using their device token, cache it in the encrypted secrets store, and re-fetch automatically if the key is rotated. Nothing ships in the installer and no `credentials.json` is needed.
 
-Requires internet. Needs a Google OAuth "Desktop app" client — either `credentials.json` in the data folder (same file Google Drive backup uses) or `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars.
+Requires internet. Google Sign-In needs an OAuth "Desktop app" client — `credentials.json` in the data folder (same file Google Drive backup uses), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars, or the gateway-vendored config for cloud-linked installs.
 
 **Setup:**
 

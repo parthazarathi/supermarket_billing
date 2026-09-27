@@ -136,6 +136,23 @@ function createApp(deps) {
     });
   });
 
+  // AI Store Manager provisioning. The Gemini key and the Google OAuth
+  // "Desktop app" client live only on the gateway - linked installs pull
+  // them with their device token, so key rotation and OAuth client changes
+  // propagate without a POS update and no credentials.json is shipped.
+  app.get('/v1/ai/credential', device, (req, res) => {
+    const ai = config.ai || {};
+    if (!ai.geminiApiKey && !ai.googleClientId) {
+      return res.status(503).json({ ok: false, code: 'not_provisioned', error: 'AI is not provisioned on this gateway' });
+    }
+    return res.json({
+      ok: true,
+      api_key: ai.geminiApiKey || undefined,
+      google_client_id: ai.googleClientId || undefined,
+      google_client_secret: ai.googleClientSecret || undefined
+    });
+  });
+
   app.delete('/v1/devices/current', device, async (req, res) => {
     try {
       await store.revokeDevice(pool, req.device.id);

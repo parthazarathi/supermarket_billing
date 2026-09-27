@@ -306,7 +306,7 @@
         ${g.connected ? `
           <div class="ai-google-box">
             <p><b>Google account:</b> ${esc(g.name ? `${g.name} (${g.email})` : g.email)}</p>
-            <p class="muted">AI model: ${esc(st.model || "")}${st.credential_mode === "platform" ? " · platform-managed credential" : st.credential_mode === "managed" ? " · managed credential" : ""}</p>
+            <p class="muted">AI model: ${esc(st.model || "")}${st.credential_mode === "platform" ? " · platform-managed credential" : st.credential_mode === "managed" ? " · managed credential" : st.credential_mode === "cloud" ? " · cloud-managed credential" : ""}</p>
             ${!st.configured ? `<p class="help"><b>AI credential missing.</b> This installation has no Gemini credential on the backend - ask your POS provider to configure it (GEMINI_API_KEY).</p>` : ""}
           </div>` : `
           <p class="help">Connect a Google account to enable AI Store Manager. No API key is shown or entered here.</p>

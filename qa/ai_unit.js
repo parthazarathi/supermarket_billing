@@ -330,6 +330,48 @@ async function main() {
   check('AI-GA-005', 'env client id enables sign-in', require('../lib/ai/googleAuth').signInAvailable() === true);
   delete process.env.GOOGLE_CLIENT_ID;
 
+  // ---------- gateway-vendored provisioning ----------
+  // A cloud-linked install pulls the Gemini key + OAuth client from the
+  // gateway: no credentials.json, no local API key, nothing to enter.
+  const secretsLib = require('../lib/secrets');
+  process.env.MARTPOS_CLOUD_URL = 'https://gateway.test';
+  secretsLib.setSecret('cloud_device_token', 'mpt_test_device');
+  const realFetch3 = globalThis.fetch;
+  let vendoredCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/v1/ai/credential')) {
+      vendoredCalls += 1;
+      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-999', google_client_id: 'cid.apps.googleusercontent.com' }) };
+    }
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'vendored ok' }] } }] }) };
+  };
+  const cloudProv = new providerLib.GeminiProvider();
+  check('AI-CLOUD-001', 'linked install counts as configured', cloudProv.configured() === true);
+  const vRes = await cloudProv.generateResponse({ messages: [{ role: 'user', content: 'hi' }] });
+  check('AI-CLOUD-002', 'vendored key fetched + used', vRes.message.content === 'vendored ok' && vendoredCalls === 1 && secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-999');
+  check('AI-CLOUD-003', 'sign-in available via vendored oauth client', require('../lib/ai/googleAuth').signInAvailable() === true);
+  check('AI-CLOUD-004', 'status reports cloud credential mode', service.aiStatus().credential_mode === 'cloud');
+
+  // A rotated vendored key self-heals: 403 -> re-fetch -> retry succeeds.
+  let gemCalls = 0;
+  let lastKey = '';
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('/v1/ai/credential')) {
+      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-rotated' }) };
+    }
+    gemCalls += 1;
+    lastKey = (opts.headers || {})['x-goog-api-key'];
+    if (gemCalls === 1) return { ok: false, status: 403, json: async () => ({ error: { message: 'bad key' } }) };
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'rotated ok' }] } }] }) };
+  };
+  const rRes = await cloudProv.generateResponse({ messages: [{ role: 'user', content: 'hi' }] });
+  check('AI-CLOUD-005', 'auth failure re-fetches rotated key + retries', rRes.message.content === 'rotated ok' && gemCalls === 2 && lastKey === 'AIza-vendored-rotated');
+  check('AI-CLOUD-006', 'rotated key cached in secrets', secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-rotated');
+  globalThis.fetch = realFetch3;
+  delete process.env.MARTPOS_CLOUD_URL;
+  secretsLib.setSecret('cloud_device_token', '');
+  secretsLib.setSecret('gemini_api_key_cloud', '');
+
   // ---------- chat service loop (fake provider) ----------
   let calls = 0;
   providerLib.setProvider({

@@ -28,6 +28,14 @@ services:
         generateValue: true
       - key: GATEWAY_TRUST_PROXY
         value: "1"
+      # AI Store Manager provisioning - vendored to linked POS installs via
+      # GET /v1/ai/credential. Optional; set to enable the AI feature.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID      # OAuth "Desktop app" client for AI sign-in
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
 
 databases:
   - name: martpos-gateway-db
