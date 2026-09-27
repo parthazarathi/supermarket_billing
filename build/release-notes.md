@@ -1,6 +1,5 @@
-- Billing fixes: editing a bill can no longer push stock below zero, and a bill always keeps its customer unless you explicitly clear it
-- Purchases: a purchase bill can no longer be deleted or shrunk below stock that has already been sold
-- Payments: due collections only accept Cash / UPI / Card / Bank Transfer
-- Day close: the expected cash figure no longer counts credit-part of returns as cash paid out, and opening/closing cash must be a valid non-negative amount
-- Settings: Default GST only accepts valid GST slabs and GST type is validated
-- POS cart: quantity edits are checked against live stock, and passwords can no longer be reset to empty
+- AI Store Manager now runs on Google Gemini - faster, more reliable answers for sales, stock, credit and reorder questions
+- Sign in with Google: admins connect a Google account once in Settings - no API keys to type or share, and staff just use the AI view
+- Safer AI sign-in: the Google account is verified by Google itself, AI credentials stay on the backend and are never shown on screen
+- Chat is more resilient: clearer messages when AI is offline, disconnected or over its usage limit - billing, printing and reports are unaffected
+- No changes to billing, inventory, customers, reports or your data - same business logic
