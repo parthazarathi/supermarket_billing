@@ -391,15 +391,15 @@
         try {
           const res = await api("/api/ai/selftest");
           const s = res.selftest || {};
-          const lines = [];
-          lines.push((s.google && s.google.connected) ? `Google: ${s.google.email}` : "Google: not connected");
-          lines.push(s.provider_ok
-            ? `Gemini reply OK (${s.provider_latency_ms || "?"} ms)`
-            : `Gemini reply failed: ${(s.provider_error && s.provider_error.detail) || (s.provider_error && s.provider_error.code) || "unknown"}`);
-          lines.push(s.tool_ok ? "Data tools OK" : `Data tools failed: ${s.tool_error || "unknown"}`);
-          testMsg.textContent = lines.join(" · ");
+          if (!s.google || !s.google.connected) {
+            testMsg.textContent = "Connect a Google account to enable AI Store Manager.";
+          } else if (s.provider_ok && s.tool_ok !== false) {
+            testMsg.textContent = `AI Store Manager is connected and ready. (${s.provider_latency_ms || "?"} ms)`;
+          } else {
+            testMsg.textContent = "AI service is temporarily unavailable. Please try again later.";
+          }
         } catch (err) {
-          testMsg.textContent = err.message || "Self-test failed";
+          testMsg.textContent = err.message || "AI service is temporarily unavailable. Please try again later.";
         }
         testBtn.disabled = false;
       });

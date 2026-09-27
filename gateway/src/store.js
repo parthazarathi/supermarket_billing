@@ -149,6 +149,33 @@ async function revokeDevice(q, deviceId) {
   await q.query('UPDATE devices SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL', [deviceId]);
 }
 
+// ---- AI Store Manager grants ----
+// Scoped credentials for AI provisioning, issued after a verified Google
+// sign-in. Same hash-at-rest model as device tokens.
+async function createAiGrant(q, { tokenHash, googleSub, email, name }) {
+  const id = crypto.randomUUID();
+  await q.query(
+    'INSERT INTO ai_grants (id, token_hash, google_sub, email, name) VALUES ($1, $2, $3, $4, $5)',
+    [id, tokenHash, googleSub, email || '', name || '']
+  );
+  return { id, google_sub: googleSub, email };
+}
+
+async function findAiGrantByTokenHash(q, tokenHash) {
+  const r = await q.query(
+    `SELECT id, google_sub, email, name FROM ai_grants
+     WHERE token_hash = $1 AND revoked_at IS NULL`,
+    [tokenHash]
+  );
+  if (!r.rowCount) return null;
+  await q.query('UPDATE ai_grants SET last_seen_at = now() WHERE id = $1', [r.rows[0].id]).catch(() => {});
+  return r.rows[0];
+}
+
+async function revokeAiGrantByTokenHash(q, tokenHash) {
+  await q.query('UPDATE ai_grants SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [tokenHash]);
+}
+
 
 async function getTemplate(q, shopId, name, language = 'en_US') {
   const r = await q.query(
@@ -393,5 +420,6 @@ module.exports = {
   findMessageByIdempotency, createMessageWithQueue, getMessage, requeueMessage,
   messageUpdatesSince, claimDueJobs, finishJob, failJob, retryJob, cancelPendingJobs,
   insertWebhookEvent, markWebhookProcessed,
+  createAiGrant, findAiGrantByTokenHash, revokeAiGrantByTokenHash,
   supportSummary, supportDiagnostics, maskPhoneNumber
 };

@@ -2369,8 +2369,8 @@ app.post('/api/ai/google/connect', requireRole('admin'), async (req, res) => {
 
 // Disconnect: clears the linked identity only. Business data, POS users and
 // stored settings are untouched; Google tokens are never persisted at all.
-app.post('/api/ai/google/disconnect', requireRole('admin'), (req, res) => {
-  const result = aiService.disconnectGoogle();
+app.post('/api/ai/google/disconnect', requireRole('admin'), async (req, res) => {
+  const result = await aiService.disconnectGoogle();
   audit(req, 'update', 'settings', '', 'AI Google account disconnected');
   res.json({ ok: true, google: result });
 });

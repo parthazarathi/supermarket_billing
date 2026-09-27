@@ -70,3 +70,8 @@ qa/data*/
 qa/upd-feed/
 qa/ui/edge-profile/
 qa/c.txt
+
+# local artifacts - never commit
+data/backups/
+qa/shots/
+nul

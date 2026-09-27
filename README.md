@@ -199,7 +199,7 @@ It uses **Google Gemini** (default model `gemini-3.8-flash`, free tier available
 
 - **Platform-managed** — `GEMINI_API_KEY` set on the backend by the POS provider/operator.
 - **Managed** — a credential stored in the encrypted secrets store via the internal config API (`POST /api/ai/config {api_key}`); never returned to the frontend.
-- **Cloud-managed** — zero local setup: installs linked to a MartPOS owner account pull the key (and the Google OAuth client config) from the gateway's `GET /v1/ai/credential` endpoint using their device token, cache it in the encrypted secrets store, and re-fetch automatically if the key is rotated. Nothing ships in the installer and no `credentials.json` is needed.
+- **Cloud-managed** — zero local setup: on "+ Add Google Account" the install pulls the OAuth client config from the gateway's public `GET /v1/ai/oauth-client`, completes the loopback sign-in, then exchanges the verified `id_token` at `POST /v1/ai/link` (the gateway re-verifies it with Google) for a scoped AI grant. The grant authenticates `GET /v1/ai/credential`, which returns the Gemini key — cached in the encrypted secrets store and re-fetched automatically on rotation. "Remove Account" revokes the grant via `DELETE /v1/ai/link`. Nothing ships in the installer and no `credentials.json` is needed.
 
 Requires internet. Google Sign-In needs an OAuth "Desktop app" client — `credentials.json` in the data folder (same file Google Drive backup uses), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` env vars, or the gateway-vendored config for cloud-linked installs.
 

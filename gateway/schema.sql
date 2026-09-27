@@ -123,6 +123,21 @@ CREATE TABLE IF NOT EXISTS onboarding_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_onboarding_shop ON onboarding_sessions(shop_id);
 
+-- AI Store Manager grants: issued after the gateway re-verifies a Google
+-- id_token. Bound to the verified Google subject; the raw token is only
+-- ever returned once to the POS and stored hashed here.
+CREATE TABLE IF NOT EXISTS ai_grants (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  google_sub TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  last_seen_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_grants_sub ON ai_grants(google_sub);
+
 CREATE TABLE IF NOT EXISTS webhook_events (
   id TEXT PRIMARY KEY,
   digest TEXT NOT NULL UNIQUE,

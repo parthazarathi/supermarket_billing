@@ -331,32 +331,58 @@ async function main() {
   delete process.env.GOOGLE_CLIENT_ID;
 
   // ---------- gateway-vendored provisioning ----------
-  // A cloud-linked install pulls the Gemini key + OAuth client from the
-  // gateway: no credentials.json, no local API key, nothing to enter.
+  // A fresh install needs only a gateway URL: the OAuth client is vendored
+  // publicly, the verified Google id_token is exchanged for an AI grant,
+  // and the grant pulls the MARTPOS-managed Gemini key.
   const secretsLib = require('../lib/secrets');
+  const gauth2 = require('../lib/ai/googleAuth');
+  const cloudLib = require('../lib/ai/cloud');
   process.env.MARTPOS_CLOUD_URL = 'https://gateway.test';
-  secretsLib.setSecret('cloud_device_token', 'mpt_test_device');
   const realFetch3 = globalThis.fetch;
-  let vendoredCalls = 0;
-  globalThis.fetch = async (url) => {
-    if (String(url).includes('/v1/ai/credential')) {
-      vendoredCalls += 1;
-      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-999', google_client_id: 'cid.apps.googleusercontent.com' }) };
+  let lastAuth = '';
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    lastAuth = (opts && opts.headers && opts.headers.authorization) || '';
+    if (u.includes('/v1/ai/oauth-client')) {
+      return { ok: true, json: async () => ({ ok: true, google_client_id: 'cid.apps.googleusercontent.com' }) };
+    }
+    if (u.includes('/v1/ai/link')) {
+      return { ok: true, json: async () => ({ ok: true, grant_token: 'mpt_ai_grant1', api_key: 'AIza-vendored-999' }) };
+    }
+    if (u.includes('/v1/ai/credential')) {
+      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-999' }) };
     }
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'vendored ok' }] } }] }) };
   };
+
+  check('AI-CLOUD-001', 'sign-in available with gateway URL only', gauth2.signInAvailable() === true);
+  const gcfg = await gauth2.oauthClientConfigAsync();
+  check('AI-CLOUD-002', 'oauth client resolved via public endpoint (no auth header)',
+    gcfg.client_id === 'cid.apps.googleusercontent.com' && lastAuth === '');
+
+  // id_token exchange -> AI grant + vendored key cached in the secrets store.
+  const link = await cloudLib.fetchAiProvisioning({ idToken: 'idtok-test' });
+  check('AI-CLOUD-003', 'id_token link stores grant + key',
+    !!link && link.grant_token === 'mpt_ai_grant1' &&
+    secretsLib.getSecret('ai_gateway_grant') === 'mpt_ai_grant1' &&
+    secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-999');
+
   const cloudProv = new providerLib.GeminiProvider();
-  check('AI-CLOUD-001', 'linked install counts as configured', cloudProv.configured() === true);
+  check('AI-CLOUD-004', 'grant-linked install counts as configured', cloudProv.configured() === true);
   const vRes = await cloudProv.generateResponse({ messages: [{ role: 'user', content: 'hi' }] });
-  check('AI-CLOUD-002', 'vendored key fetched + used', vRes.message.content === 'vendored ok' && vendoredCalls === 1 && secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-999');
-  check('AI-CLOUD-003', 'sign-in available via vendored oauth client', require('../lib/ai/googleAuth').signInAvailable() === true);
-  check('AI-CLOUD-004', 'status reports cloud credential mode', service.aiStatus().credential_mode === 'cloud');
+  check('AI-CLOUD-005', 'vendored key used for gemini call', vRes.message.content === 'vendored ok');
+  check('AI-CLOUD-006', 'status reports cloud credential mode', service.aiStatus().credential_mode === 'cloud');
+
+  // Credential refresh authenticates with the AI grant token.
+  await cloudLib.fetchAiProvisioning();
+  check('AI-CLOUD-007', 'credential fetch uses AI grant bearer', lastAuth === 'Bearer mpt_ai_grant1');
 
   // A rotated vendored key self-heals: 403 -> re-fetch -> retry succeeds.
   let gemCalls = 0;
   let lastKey = '';
   globalThis.fetch = async (url, opts) => {
-    if (String(url).includes('/v1/ai/credential')) {
+    const u = String(url);
+    if (u.includes('/v1/ai/')) {
       return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-rotated' }) };
     }
     gemCalls += 1;
@@ -365,33 +391,25 @@ async function main() {
     return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'rotated ok' }] } }] }) };
   };
   const rRes = await cloudProv.generateResponse({ messages: [{ role: 'user', content: 'hi' }] });
-  check('AI-CLOUD-005', 'auth failure re-fetches rotated key + retries', rRes.message.content === 'rotated ok' && gemCalls === 2 && lastKey === 'AIza-vendored-rotated');
-  check('AI-CLOUD-006', 'rotated key cached in secrets', secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-rotated');
-
-  // Vendored OAuth client: no credentials.json needed on linked installs.
-  const gauth2 = require('../lib/ai/googleAuth');
-  globalThis.fetch = async (url) => {
-    if (String(url).includes('/v1/ai/credential')) {
-      return { ok: true, json: async () => ({ ok: true, api_key: 'AIza-vendored-999', google_client_id: 'cid.apps.googleusercontent.com' }) };
-    }
-    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }) };
-  };
-  const gcfg = await gauth2.oauthClientConfigAsync();
-  check('AI-CLOUD-007', 'oauth client resolved from gateway', gcfg.client_id === 'cid.apps.googleusercontent.com');
+  check('AI-CLOUD-008', 'auth failure re-fetches rotated key + retries', rRes.message.content === 'rotated ok' && gemCalls === 2 && lastKey === 'AIza-vendored-rotated');
+  check('AI-CLOUD-009', 'rotated key cached in secrets', secretsLib.getSecret('gemini_api_key_cloud') === 'AIza-vendored-rotated');
 
   // Post-sign-in provisioning: vendored key + probe -> ready.
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] }) });
   const provOk = await service.provisionAndTest();
-  check('AI-CLOUD-008', 'provisioning probe succeeds on vendored key', provOk.ok === true);
+  check('AI-CLOUD-010', 'provisioning probe succeeds on vendored key', provOk.ok === true);
 
   // Gateway/Gemini outage -> soft failure, never a crash.
   globalThis.fetch = async () => { throw new Error('gateway down'); };
   const provFail = await service.provisionAndTest();
-  check('AI-CLOUD-009', 'outage -> provisioning fails softly', provFail.ok === false);
+  check('AI-CLOUD-011', 'outage -> provisioning fails softly', provFail.ok === false);
 
-  // Remove Account clears the linked identity AND the cached vendored key.
-  const dcRes = service.disconnectGoogle();
-  check('AI-CLOUD-010', 'remove account clears identity + vendored key',
-    dcRes.connected === false && gauth2.identity().connected === false && secretsLib.getSecret('gemini_api_key_cloud') === '');
+  // Remove Account clears the identity, the AI grant AND the vendored key.
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true }) });
+  const dcRes = await service.disconnectGoogle();
+  check('AI-CLOUD-012', 'remove account clears identity + grant + vendored key',
+    dcRes.connected === false && gauth2.identity().connected === false &&
+    secretsLib.getSecret('gemini_api_key_cloud') === '' && secretsLib.getSecret('ai_gateway_grant') === '');
 
   // Re-link the test identity the remaining chat/disconnect tests rely on.
   require('../lib/settings').setSettings({
@@ -405,6 +423,7 @@ async function main() {
   globalThis.fetch = realFetch3;
   delete process.env.MARTPOS_CLOUD_URL;
   secretsLib.setSecret('cloud_device_token', '');
+  secretsLib.setSecret('ai_gateway_grant', '');
   secretsLib.setSecret('gemini_api_key_cloud', '');
 
   // ---------- chat service loop (fake provider) ----------
